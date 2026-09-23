@@ -40,28 +40,31 @@ export function applyTheme(t: Theme) {
 }
 
 /**
- * Theme state. Initialized from the <html> class set pre-paint by the
- * FOUC script in layout.tsx, so server and client render agree.
+ * Theme state.
+ *
+ * Initial values are constants matching the server render exactly.
+ * Reading the DOM/localStorage during render would emit different HTML
+ * on the client (e.g. Sun vs Moon icon) and break hydration, so the
+ * stored/OS preference is reconciled in an effect after mount instead.
+ * The pre-paint FOUC script in layout.tsx already set the correct
+ * <html> class, so there is no flash — only the React state catches up.
  */
 export function useTheme(): { theme: Theme; setTheme: (t: Theme) => void; resetToSystem: () => void; isSystem: boolean } {
-  const [theme, setThemeState] = React.useState<Theme>(() =>
-    typeof document === "undefined" ? "dark" : document.documentElement.classList.contains("light") ? "light" : "dark"
-  );
-  const [isSystem, setIsSystem] = React.useState<boolean>(() =>
-    typeof document === "undefined" ? true : readStored() == null
-  );
+  const [theme, setThemeState] = React.useState<Theme>("dark");
+  const [isSystem, setIsSystem] = React.useState<boolean>(true);
 
   React.useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => {
-      if (readStored() == null) {
-        const t = resolveTheme(null, mq.matches);
-        document.documentElement.classList.toggle("light", t === "light");
-        setThemeState(t);
-      }
+    const sync = () => {
+      const stored = readStored();
+      const t = resolveTheme(stored, mq.matches);
+      document.documentElement.classList.toggle("light", t === "light");
+      setThemeState(t);
+      setIsSystem(stored == null);
     };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   const setTheme = React.useCallback((t: Theme) => {
