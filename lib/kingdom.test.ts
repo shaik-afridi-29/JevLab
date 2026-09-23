@@ -165,12 +165,12 @@ describe("beliefs and rationality", () => {
     const wrong = validTargets(g0).find((t) => g0.assignment[t] !== "Queen")!;
     const g1 = guess(g0, wrong).game;
     const b = beliefs(g1);
-    // failed guesser is now the holder: off the candidate list entirely
     expect(Object.keys(b).sort()).toEqual(validTargets(g1).sort());
     expect(b[wrong] ?? 0).toBe(0);
-    const vals = Object.values(b);
-    expect(new Set(vals.map((v) => v.toFixed(6))).size).toBe(1);
-    expect(vals[0]).toBeCloseTo(1 / vals.length, 6);
+    const live = Object.values(b).filter((v) => v > 0);
+    expect(new Set(live.map((v) => v.toFixed(6))).size).toBe(1);
+    expect(live[0]).toBeCloseTo(1 / live.length, 6);
+    expect(Object.values(b).reduce((a, x) => a + x, 0)).toBeCloseTo(1, 6);
   });
   it("rationality is the belief mass on the picked target", () => {
     const g = newGame(42);
@@ -183,5 +183,52 @@ describe("beliefs and rationality", () => {
     const { criteria, indexToTarget } = choiceCriteria(g);
     expect(Object.keys(criteria).sort()).toEqual(validTargets(g).sort());
     expect(indexToTarget["P1"]).toBe("P1");
+  });
+});
+
+describe("card-level elimination (anti ping-pong)", () => {
+  it("a card guessed wrong for a role stays ruled out for that role after a swap", () => {
+    const g0 = newGame(42);
+    const king = holderOf(g0, "King");
+    const wrong = validTargets(g0).find((t) => g0.assignment[t] !== "Queen")!;
+    const g1 = guess(g0, wrong).game;
+    // old holder now holds the disproven card: beliefs must give it zero for Queen
+    const b = beliefs(g1);
+    expect(b[king] ?? 0).toBe(0);
+    // and the true Queen holder is still live
+    const queen = Object.entries(g1.assignment).find(([, r]) => r === "Queen")![0];
+    expect(b[queen]).toBeGreaterThan(0);
+  });
+  it("ban notes travel with the swapped cards", () => {
+    const g0 = newGame(42);
+    const king = holderOf(g0, "King");
+    const wrong = validTargets(g0).find((t) => g0.assignment[t] !== "Queen")!;
+    const g1 = guess(g0, wrong).game;
+    // the disproven card moved to the old holder
+    expect(g1.cardBans[king]).toContain("Queen");
+    // the King card now held by the guesser carries no ban
+    expect(g1.cardBans[wrong]).not.toContain("Queen");
+  });
+  it("R2/R3 ping-pong is structurally impossible", () => {
+    // P2 (Queen) guesses P3 for Minister, wrong; P3 must never re-guess P2 for Minister
+    let g = newGame(2024);
+    // fast-forward to a Queen search is complex; emulate directly:
+    const king = holderOf(g, "King");
+    const qHolder = Object.entries(g.assignment).find(([, r]) => r === "Queen")![0];
+    // force a King-search swap: king guesses a non-Queen target
+    const wrong = validTargets(g).find((t) => t !== qHolder)!;
+    const g1 = guess(g, wrong).game;
+    const b = beliefs(g1);
+    // the previous holder's new card is disproven for Queen
+    expect(b[king] ?? 0).toBe(0);
+    expect(Object.values(b).reduce((a, x) => a + x, 0)).toBeCloseTo(1, 6);
+  });
+  it("observable state publishes card eliminations without leaking assignment", () => {
+    const g0 = newGame(42);
+    const wrong = validTargets(g0).find((t) => g0.assignment[t] !== "Queen")!;
+    const g1 = guess(g0, wrong).game;
+    const obs = observableState(g1) as { known_not: { player: string; roles: string[] }[] };
+    const entry = obs.known_not.find((k) => k.player === holderOf(g0, "King"));
+    expect(entry?.roles).toContain("Queen");
   });
 });

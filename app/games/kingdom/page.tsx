@@ -18,6 +18,7 @@ import {
   beliefs,
   guess,
   choiceCriteria,
+  isRuledOut,
   moveChoiceInstructions,
   scoreGame,
   type KingdomGame,
@@ -61,10 +62,11 @@ const ROLE_TONE: Record<string, string> = {
   Thief: "text-red-300 border-red-400/40 bg-red-400/10",
 };
 
-/** Seat i (0–5) around the circle, in % coordinates. P1 sits at the top. */
+/** Seat i (0–5) around the circle, in % coordinates. P1 sits at the top.
+ *  Radius 38 keeps the top seat fully inside the card. */
 function seatPos(i: number): { x: number; y: number } {
   const a = ((i * 60 - 90) * Math.PI) / 180;
-  return { x: 50 + 42 * Math.cos(a), y: 50 + 42 * Math.sin(a) };
+  return { x: 50 + 38 * Math.cos(a), y: 50 + 38 * Math.sin(a) };
 }
 const seatIdx = (id: string) => parseInt(id.slice(1), 10) - 1;
 
@@ -397,7 +399,8 @@ export default function KingdomPage() {
               {game.players.map((p, i) => {
                 const pos = seatPos(i);
                 const isHolder = holder === p.id;
-                const ruledOut = game.failedGuesses.includes(p.id);
+                const ruledOut = isRuledOut(game, p.id);
+                const bannedByHistory = (game.cardBans[p.id] ?? []).length > 0 && ruledOut && !game.failedGuesses.includes(p.id);
                 const clickable = mode === "human" && !game.completed && !thinking && stage === "idle" && targets.includes(p.id);
                 const fails = game.history.filter((h) => h.guessedPlayer === p.id && h.result === "incorrect").length;
                 return (
@@ -423,42 +426,41 @@ export default function KingdomPage() {
                       <span className="mt-1 font-mono text-[11px] font-bold">{p.id}</span>
                       <span className="mt-0.5 flex h-4 items-center gap-1 text-[10px] text-mist-400">
                         {!p.active ? <span className="font-semibold text-emerald-300">{ordinal(p.placement!)} · {p.completedRole}</span>
-                          : ruledOut ? <span className="text-mist-500">ruled out{fails > 1 ? ` ×${fails}` : ""}</span>
+                          : ruledOut ? <span className="text-mist-500">{bannedByHistory ? "disproven by history" : `ruled out${fails > 1 ? ` ×${fails}` : ""}`}</span>
                           : isHolder ? <span className="text-amber-200">{role}</span> : <span>active</span>}
                       </span>
                       {/* hidden role chip: face-down card that flips on exit to reveal the kept role */}
-                      <span className="mt-1.5 block h-5 w-14 [perspective:240px]">
+                      <span className="mt-1.5 block h-5 w-16 [perspective:240px]">
                         <span className={cn("relative block h-full w-full transition-transform duration-500 [transform-style:preserve-3d]", !p.active && "[transform:rotateY(180deg)]")}>
                           <span className="absolute inset-0 flex items-center justify-center rounded border border-line/20 bg-ink-800 font-mono text-[9px] text-mist-500 [backface-visibility:hidden]">···</span>
-                          <span className="absolute inset-0 flex items-center justify-center rounded border border-emerald-400/40 bg-emerald-400/15 font-mono text-[9px] font-bold text-emerald-200 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                            {!p.active ? p.completedRole?.slice(0, 5).toUpperCase() : ""}
+                          <span className="absolute inset-0 flex items-center justify-center whitespace-nowrap rounded border border-emerald-400/40 bg-emerald-400/15 px-1 font-mono text-[9px] font-bold text-emerald-200 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                            {!p.active ? p.completedRole?.toUpperCase() : ""}
                           </span>
                         </span>
                       </span>
                     </button>
+                    <AnimatePresence>
+                      {isHolder && p.active && thinking && (
+                        <Bubble key={`think-${game.round}`} tone="thinking">
+                          <span className="font-mono text-[11px] font-bold">{p.id}</span>
+                          <span className="text-[11px] text-mist-300"> ponders</span>
+                          <span className="kingdom-dots text-[11px]"><span>·</span><span>·</span><span>·</span></span>
+                        </Bubble>
+                      )}
+                      {isHolder && p.active && !thinking && pending && (stage === "reveal" || stage === "swap" || stage === "verdict") && (
+                        <Bubble key={`pick-${game.round}-${pending.pick}`} tone={stage === "verdict" ? "dim" : "pick"}>
+                          <span className="font-mono text-[11px] font-bold">{pending.pick}</span>
+                          <span className="text-[11px] text-mist-300"> holds {role ? ROLES[game.activeRoleIdx + 1] : ""}?</span>
+                          <span className="mono-num ml-1 font-mono text-[11px] font-bold text-violet-300">{fmtPct(pending.prob)}</span>
+                        </Bubble>
+                      )}
+                    </AnimatePresence>
                   </div>
                 );
               })}
 
-              {/* thought / decision bubbles */}
+              {/* thought / decision bubbles live on the seats; swap chips fly here */}
               <div className="pointer-events-none absolute inset-0" aria-live="polite">
-                <AnimatePresence>
-                  {thinking && holder && (
-                    <Bubble key={`think-${game.round}`} pos={seatPos(seatIdx(holder))} tone="thinking">
-                      <span className="font-mono text-[11px] font-bold">{holder}</span>
-                      <span className="text-[11px] text-mist-300"> ponders</span>
-                      <span className="kingdom-dots text-[11px]"><span>·</span><span>·</span><span>·</span></span>
-                    </Bubble>
-                  )}
-                  {!thinking && pending && holder && (stage === "reveal" || stage === "swap" || stage === "verdict") && (
-                    <Bubble key={`pick-${game.round}-${pending.pick}`} pos={seatPos(seatIdx(holder))} tone={stage === "verdict" ? "dim" : "pick"}>
-                      <span className="font-mono text-[11px] font-bold">{pending.pick}</span>
-                      <span className="text-[11px] text-mist-300"> holds {role ? ROLES[game.activeRoleIdx + 1] : ""}?</span>
-                      <span className="mono-num ml-1 font-mono text-[11px] font-bold text-violet-300">{fmtPct(pending.prob)}</span>
-                    </Bubble>
-                  )}
-                </AnimatePresence>
-
                 {/* flying swap chips */}
                 <AnimatePresence>
                   {swapAnim && (
@@ -490,10 +492,10 @@ export default function KingdomPage() {
                 {targets.map((t) => (
                   <div key={t}>
                     <div className="mb-1 flex justify-between font-mono text-[12.5px]">
-                      <span className={cn("text-mist-300", game.failedGuesses.includes(t) && "line-through opacity-60")}>{t}</span>
+                      <span className={cn("text-mist-300", isRuledOut(game, t) && "line-through opacity-60")}>{t}{isRuledOut(game, t) && !game.failedGuesses.includes(t) ? "*" : ""}</span>
                       <span className="mono-num font-semibold">{fmtPct(b[t] ?? 0)}</span>
                     </div>
-                    <ProbBar value={b[t] ?? 0} tone={game.failedGuesses.includes(t) ? "red" : "violet"} height={7} />
+                    <ProbBar value={b[t] ?? 0} tone={isRuledOut(game, t) ? "red" : "violet"} height={7} />
                   </div>
                 ))}
               </div>
@@ -601,15 +603,14 @@ export default function KingdomPage() {
   );
 }
 
-function Bubble({ pos, tone, children }: { pos: { x: number; y: number }; tone: "thinking" | "pick" | "dim"; children: React.ReactNode }) {
+function Bubble({ tone, children }: { tone: "thinking" | "pick" | "dim"; children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: "-50%", y: "-100%", scale: 0.92 }}
-      animate={{ opacity: tone === "dim" ? 0.75 : 1, x: "-50%", y: "-118%", scale: 1 }}
-      exit={{ opacity: 0, x: "-50%", y: "-100%", scale: 0.92 }}
+      initial={{ opacity: 0, x: "-50%", scale: 0.92 }}
+      animate={{ opacity: tone === "dim" ? 0.75 : 1, x: "-50%", scale: 1 }}
+      exit={{ opacity: 0, x: "-50%", scale: 0.92 }}
       transition={{ type: "spring", stiffness: 400, damping: 26 }}
-      className="absolute z-20"
-      style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+      className="absolute bottom-[calc(100%+10px)] left-1/2 z-20"
     >
       <div className={cn(
         "whitespace-nowrap rounded-2xl rounded-bl-md border px-3 py-1.5 shadow-pop backdrop-blur",

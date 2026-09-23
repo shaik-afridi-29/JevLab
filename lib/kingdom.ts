@@ -39,6 +39,10 @@ export interface KingdomGame {
   completed: boolean;
   /** Targets already failed for the current role search (survives swaps). */
   failedGuesses: string[];
+  /** Card-level memory: roles a player's CURRENT card provably is not.
+   *  Notes travel with the cards through swaps, so a disproven card stays
+   *  disproven no matter whose hands it is in. Monotonic: never cleared. */
+  cardBans: Record<string, Role[]>;
 }
 
 /** Deterministic PRNG so games replay from a seed. */
@@ -80,6 +84,7 @@ export function newGame(seed: number): KingdomGame {
     history: [],
     completed: false,
     failedGuesses: [],
+    cardBans: Object.fromEntries(PLAYER_IDS.map((id) => [id, []])),
   };
 }
 
@@ -144,11 +149,16 @@ export function guess(game: KingdomGame, targetId: string): { game: KingdomGame;
     }
   } else {
     h.failures += 1;
-    // Central mechanic: the two players swap role cards.
+    // The guessed card provably is not the sought role — record it on the
+    // card first, then swap cards (notes travel with the cards).
+    const sought = ROLES[g.activeRoleIdx + 1];
+    if (!g.cardBans[targetId].includes(sought)) g.cardBans[targetId].push(sought);
     const tmp = g.assignment[holder];
     g.assignment[holder] = g.assignment[targetId];
     g.assignment[targetId] = tmp;
-    t.attempts += 0; // attempts counted on the actor at decision time
+    const tmpBans = g.cardBans[holder];
+    g.cardBans[holder] = g.cardBans[targetId];
+    g.cardBans[targetId] = tmpBans;
     if (!g.failedGuesses.includes(targetId)) g.failedGuesses.push(targetId);
   }
   g.history.push(event);
@@ -169,6 +179,9 @@ export function observableState(game: KingdomGame): Record<string, unknown> {
       ...(p.active ? {} : { placement: p.placement, completed_role: p.completedRole }),
     })),
     failed_guesses_this_search: [...game.failedGuesses],
+    known_not: game.players
+      .filter((p) => p.active && (game.cardBans[p.id] ?? []).length > 0)
+      .map((p) => ({ player: p.id, roles: [...game.cardBans[p.id]] })),
     previous_events: game.history.map((h) => ({
       round: h.round,
       active_role: h.activeRole,
@@ -181,13 +194,24 @@ export function observableState(game: KingdomGame): Record<string, unknown> {
   };
 }
 
+/** A target is unpickable when directly failed this search or its current
+ *  card was disproven for the sought role in an earlier round. */
+export function isRuledOut(game: KingdomGame, targetId: string): boolean {
+  if (game.completed) return true;
+  const next = ROLES[game.activeRoleIdx + 1];
+  return game.failedGuesses.includes(targetId) || (game.cardBans[targetId] ?? []).includes(next);
+}
+
 /** Code-computed beliefs for the current search: uniform over valid targets
- *  minus already-failed guesses (which survive holder swaps). */
+ *  minus ruled-out candidates (failed guesses AND card-level bans, which
+ *  survive holder swaps). Falls back to plain uniform defensively. */
 export function beliefs(game: KingdomGame): Record<string, number> {
   const out: Record<string, number> = {};
-  const live = validTargets(game).filter((t) => !game.failedGuesses.includes(t));
+  const valid = validTargets(game);
+  let live = valid.filter((t) => !isRuledOut(game, t));
+  if (live.length === 0) live = valid;
   const each = live.length > 0 ? 1 / live.length : 0;
-  for (const t of validTargets(game)) out[t] = live.includes(t) ? each : 0;
+  for (const t of valid) out[t] = live.includes(t) ? each : 0;
   return out;
 }
 
@@ -206,9 +230,10 @@ export function choiceCriteria(game: KingdomGame): {
   const criteria: Record<string, string> = {};
   const indexToTarget: Record<string, string> = {};
   for (const t of validTargets(game)) {
-    const ruledOut = game.failedGuesses.includes(t);
+    const banned = (game.cardBans[t] ?? []).includes(next);
+    const failed = game.failedGuesses.includes(t);
     criteria[t] =
-      `${t} — ${ruledOut ? "already guessed wrong for this search; only pick if all others are eliminated" : `could hold the ${next} card`}. ` +
+      `${t} — ${banned ? `ruled out for ${next}: this card was already guessed wrong for it` : failed ? "already guessed wrong for this search; only pick if all others are eliminated" : `could hold the ${next} card`}. ` +
       `History: ${game.history.length} prior rounds, ${game.failedGuesses.length} failed guess(es) this search.`;
     indexToTarget[t] = t;
   }
