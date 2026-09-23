@@ -7,7 +7,7 @@ import { MotionConfig } from "framer-motion";
 import {
   FlaskConical, LayoutDashboard, SplitSquareHorizontal, ListChecks, Gauge,
   Layers, Repeat, Swords, GitCompareArrows, Library, BookOpen, Settings,
-  Search, Command, Zap, Clapperboard, Ghost, Gamepad2, TestTube2, Crown, TriangleAlert, Scale, Crosshair, Coins, Workflow, Timer, GraduationCap,
+  Search, Command, Zap, Clapperboard, Ghost, Gamepad2, TestTube2, Crown, TriangleAlert, Scale, Crosshair, Coins, Workflow, Timer, GraduationCap, Castle,
   CircleDot, ChevronDown, FlaskConical as LabIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -48,6 +48,7 @@ const NAV: { section?: string; items: { href: string; label: string; icon: React
       { href: "/games/pokemon", label: "Pokémon Battle", icon: <Zap size={15} /> },
       { href: "/games/chess", label: "Chess vs Jev", icon: <Crown size={15} /> },
       { href: "/games/loop", label: "Loop Arena", icon: <Timer size={15} /> },
+      { href: "/games/kingdom", label: "Kingdom", icon: <Castle size={15} /> },
       { href: "/games/custom", label: "Custom Game", icon: <Gamepad2 size={15} /> },
     ],
   },
@@ -78,6 +79,7 @@ const PALETTE_ACTIONS = [
   { label: "Open Pokémon", href: "/games/pokemon" },
   { label: "Open Chess vs Jev", href: "/games/chess" },
   { label: "Open Loop Arena", href: "/games/loop" },
+  { label: "Open Kingdom", href: "/games/kingdom" },
   { label: "Open Jaggedness Gauntlet", href: "/experiments/jaggedness" },
   { label: "Open Confidence Lab", href: "/experiments/confidence-lab" },
   { label: "Open Calibration Workbench", href: "/experiments/calibration-workbench" },
