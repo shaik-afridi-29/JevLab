@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { validateExperiment, validateQuestion, parseStateInput } from "./validators";
 import { experimentToRequest, questionToWire, friendlyErrorMessage } from "./service";
+import { callJevApi } from "./client";
 import type { Question } from "./types";
 
 const noul: Question = { id: "q1", name: "escalate", type: "noul", instructions: "Does this need escalation?" };
@@ -60,5 +61,45 @@ describe("service", () => {
   it("maps 422 to config message", () => {
     const m = friendlyErrorMessage(Object.assign(new Error("bad"), { status: 422 }));
     expect(m.title).toMatch(/did not accept/i);
+  });
+});
+
+describe("callJevApi resilience", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("aborts a hung upstream call after timeoutMs", async () => {
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+    const t0 = Date.now();
+    await expect(
+      callJevApi({ model: "m", state: "s", questions: {} } as never, "k", { timeoutMs: 60, retries: 0 })
+    ).rejects.toMatchObject({ status: 504 });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  it("retries once after a timeout, then succeeds", async () => {
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n += 1;
+      if (n === 1) throw new DOMException("aborted", "AbortError");
+      return new Response(JSON.stringify({ model: "m", answers: {} }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const out = await callJevApi({ model: "m", state: "s", questions: {} } as never, "k", { timeoutMs: 500, retries: 1 });
+    expect(n).toBe(2);
+    expect(out.status).toBe(200);
+  });
+
+  it("does not retry client errors", async () => {
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n += 1;
+      return new Response(JSON.stringify({ error: "bad" }), { status: 422 });
+    }) as unknown as typeof fetch;
+    await expect(
+      callJevApi({ model: "m", state: "s", questions: {} } as never, "k", { timeoutMs: 500, retries: 2 })
+    ).rejects.toMatchObject({ status: 422 });
+    expect(n).toBe(1);
   });
 });

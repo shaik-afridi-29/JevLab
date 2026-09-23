@@ -79,6 +79,7 @@ export default function KingdomPage() {
   const [seed, setSeed] = React.useState(42);
   const [game, setGame] = React.useState<KingdomGame>(() => newGame(42));
   const [thinking, setThinking] = React.useState(false);
+  const [thinkSecs, setThinkSecs] = React.useState(0);
   const [stage, setStage] = React.useState<Stage>("idle");
   const [pending, setPending] = React.useState<PendingPick | null>(null);
   const [swapAnim, setSwapAnim] = React.useState<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
@@ -112,6 +113,17 @@ export default function KingdomPage() {
     clearTimers();
     abortRef.current?.abort();
   }, []);
+
+  // Elapsed-time readout so a slow upstream reads as "API slow", not "app frozen".
+  React.useEffect(() => {
+    if (!thinking) {
+      setThinkSecs(0);
+      return;
+    }
+    const t0 = Date.now();
+    const id = window.setInterval(() => setThinkSecs(Math.floor((Date.now() - t0) / 1000)), 500);
+    return () => clearInterval(id);
+  }, [thinking]);
 
   const start = (seedV: number, modeV: Mode) => {
     abortRef.current?.abort();
@@ -203,8 +215,10 @@ export default function KingdomPage() {
       setPending(null);
       setStage("idle");
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError"))
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
         setError(e instanceof Error ? e.message : "Turn failed");
+        setAuto(false); // don't march autoplay into repeated stalls
+      }
       setStage("idle");
       setPending(null);
     } finally {
@@ -444,8 +458,14 @@ export default function KingdomPage() {
                       {isHolder && p.active && thinking && (
                         <Bubble key={`think-${game.round}`} tone="thinking">
                           <span className="font-mono text-[11px] font-bold">{p.id}</span>
-                          <span className="text-[11px] text-mist-300"> ponders</span>
-                          <span className="kingdom-dots text-[11px]"><span>·</span><span>·</span><span>·</span></span>
+                          {thinkSecs > 2 ? (
+                            <span className="mono-num ml-1 font-mono text-[11px] text-amber-200">API slow… {thinkSecs}s</span>
+                          ) : (
+                            <>
+                              <span className="text-[11px] text-mist-300"> ponders</span>
+                              <span className="kingdom-dots text-[11px]"><span>·</span><span>·</span><span>·</span></span>
+                            </>
+                          )}
                         </Bubble>
                       )}
                       {isHolder && p.active && !thinking && pending && (stage === "reveal" || stage === "swap" || stage === "verdict") && (

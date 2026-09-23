@@ -52,6 +52,8 @@ export function friendlyErrorMessage(err: unknown): { title: string; detail: str
     return { title: "Jev did not accept this question configuration", detail: raw, status };
   if (status === 429)
     return { title: "Rate limited by Jev", detail: "Too many requests in a short window. Wait a few seconds and retry.", status };
+  if (status === 504 || /timed out after/i.test(raw))
+    return { title: "Jev timed out", detail: "Upstream took unusually long (typical answers land in under a second; slow sampling passes occasionally stall). The call was retried once — try the turn again or continue manually.", status: status ?? 504 };
   if (/fetch failed|ECONN|network|timeout/i.test(raw))
     return { title: "Network failure reaching Jev", detail: raw, status };
   return { title: "Jev request failed", detail: raw, status };
