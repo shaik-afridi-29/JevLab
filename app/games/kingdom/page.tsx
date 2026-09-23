@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, RotateCcw, StepForward, Users, Swords, Trophy, Brain, X } from "lucide-react";
+import { Play, Pause, RotateCcw, StepForward, Users, Swords, Trophy, Brain } from "lucide-react";
 import { Button, Card, Edu, ErrorBox, EmptyState, SectionHead, DemoBadge, Field, inputCls } from "@/components/ui";
 import { ProbBar } from "@/components/visuals";
 import { logUsageFromResponse } from "@/lib/cost";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/kingdom";
 
 type Mode = "watch" | "human";
+type Stage = "idle" | "thinking" | "reveal" | "swap" | "verdict";
 
 interface TurnTrace {
   round: number;
@@ -44,6 +45,13 @@ interface BatchRow {
   rationality: number;
 }
 
+interface PendingPick {
+  pick: string;
+  prob: number;
+  jevPick: string;
+  jevProbs: Record<string, number>;
+}
+
 const ROLE_TONE: Record<string, string> = {
   King: "text-amber-300 border-amber-400/40 bg-amber-400/10",
   Queen: "text-violet-400 border-violet-400/40 bg-violet-400/10",
@@ -52,6 +60,13 @@ const ROLE_TONE: Record<string, string> = {
   Police: "text-sky-300 border-sky-400/40 bg-sky-400/10",
   Thief: "text-red-300 border-red-400/40 bg-red-400/10",
 };
+
+/** Seat i (0–5) around the circle, in % coordinates. P1 sits at the top. */
+function seatPos(i: number): { x: number; y: number } {
+  const a = ((i * 60 - 90) * Math.PI) / 180;
+  return { x: 50 + 42 * Math.cos(a), y: 50 + 42 * Math.sin(a) };
+}
+const seatIdx = (id: string) => parseInt(id.slice(1), 10) - 1;
 
 export default function KingdomPage() {
   const demoMode = useLab((s) => s.demoMode);
@@ -62,8 +77,11 @@ export default function KingdomPage() {
   const [seed, setSeed] = React.useState(42);
   const [game, setGame] = React.useState<KingdomGame>(() => newGame(42));
   const [thinking, setThinking] = React.useState(false);
+  const [stage, setStage] = React.useState<Stage>("idle");
+  const [pending, setPending] = React.useState<PendingPick | null>(null);
+  const [swapAnim, setSwapAnim] = React.useState<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
+  const [verdict, setVerdict] = React.useState<{ kind: "correct" | "wrong"; text: string; sub: string } | null>(null);
   const [auto, setAuto] = React.useState(false);
-  const [banner, setBanner] = React.useState<{ kind: "correct" | "wrong"; text: string; sub: string } | null>(null);
   const [traces, setTraces] = React.useState<TurnTrace[]>([]);
   const [traceOpen, setTraceOpen] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -74,16 +92,38 @@ export default function KingdomPage() {
   const [batchRows, setBatchRows] = React.useState<BatchRow[] | null>(null);
   const busyRef = React.useRef(false);
   const abortRef = React.useRef<AbortController | null>(null);
+  const timers = React.useRef<number[]>([]);
   const gameRef = React.useRef(game);
   gameRef.current = game;
 
+  const later = (ms: number) =>
+    new Promise<void>((res) => {
+      const id = window.setTimeout(res, ms);
+      timers.current.push(id);
+    });
+  const clearTimers = () => {
+    timers.current.forEach((t) => clearTimeout(t));
+    timers.current = [];
+  };
+
+  React.useEffect(() => () => {
+    clearTimers();
+    abortRef.current?.abort();
+  }, []);
+
   const start = (seedV: number, modeV: Mode) => {
     abortRef.current?.abort();
+    clearTimers();
+    busyRef.current = false;
     setGame(newGame(seedV));
     setMode(modeV);
     setTraces([]);
     setTraceOpen(null);
-    setBanner(null);
+    setVerdict(null);
+    setPending(null);
+    setSwapAnim(null);
+    setStage("idle");
+    setThinking(false);
     setError(null);
     setAuto(false);
     setBatchRows(null);
@@ -119,16 +159,30 @@ export default function KingdomPage() {
     return { jevPick: validTargets(g).includes(jevPick) ? jevPick : validTargets(g)[0], probs };
   };
 
-  const applyTurn = async (humanPick: string | null, signal?: AbortSignal) => {
+  const applyTurn = async (humanPick: string | null) => {
     const g = gameRef.current;
     if (g.completed || busyRef.current) return;
     busyRef.current = true;
     setThinking(true);
+    setStage("thinking");
+    setVerdict(null);
     setError(null);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
-      const { jevPick, probs } = await askJev(g, signal);
+      const { jevPick, probs } = await askJev(g, ctrl.signal);
       const applied = humanPick ?? jevPick;
+      setPending({ pick: applied, prob: probs[applied] ?? 0, jevPick, jevProbs: probs });
+      setStage("reveal");
+      setThinking(false);
+      await later(850);
       const { game: ng, event } = guess(gameRef.current, applied);
+      if (event.swapOccurred) {
+        setSwapAnim({ from: seatPos(seatIdx(event.actingPlayer)), to: seatPos(seatIdx(event.guessedPlayer)) });
+        setStage("swap");
+        await later(900);
+        setSwapAnim(null);
+      }
       setGame(ng);
       setTraces((t) => [...t, {
         round: event.round, role: event.activeRole, actor: event.actingPlayer,
@@ -137,13 +191,20 @@ export default function KingdomPage() {
       const holder = event.actingPlayer;
       if (event.result === "correct") {
         const placed = ng.players.find((p) => p.id === holder)!;
-        setBanner({ kind: "correct", text: "CORRECT", sub: `${event.activeRole} completed — ${holder} takes ${ordinal(placed.placement!)} place` });
+        setVerdict({ kind: "correct", text: "YES", sub: `${event.activeRole} found — ${holder} takes ${ordinal(placed.placement!)} place` });
       } else {
-        setBanner({ kind: "wrong", text: "INCORRECT", sub: `Roles swapped — ${holder} ↔ ${event.guessedPlayer}. ${event.activeRole} searches on.` });
+        setVerdict({ kind: "wrong", text: "NO", sub: `Cards fly — ${holder} ↔ ${event.guessedPlayer}. ${event.activeRole} searches on.` });
       }
+      setStage("verdict");
+      await later(1250);
+      setVerdict(null);
+      setPending(null);
+      setStage("idle");
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError"))
         setError(e instanceof Error ? e.message : "Turn failed");
+      setStage("idle");
+      setPending(null);
     } finally {
       busyRef.current = false;
       setThinking(false);
@@ -157,7 +218,7 @@ export default function KingdomPage() {
       setAuto(false);
       return;
     }
-    const id = setTimeout(() => void applyTurn(null), 900);
+    const id = setTimeout(() => void applyTurn(null), 2600);
     return () => clearTimeout(id);
   }, [auto, game, phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -198,7 +259,7 @@ export default function KingdomPage() {
             <Trophy size={22} />
           </div>
           <h1 className="text-[26px] font-semibold tracking-tight">Kingdom Guessing Game</h1>
-          <p className="mt-1 text-[14px] text-mist-400">Six players, six hidden roles. Each role must find the next — a wrong guess swaps the cards. Jev decides under uncertainty; rationality is scored, not just hits.</p>
+          <p className="mt-1 text-[14px] text-mist-400">Six players, six hidden roles, one round table. Each role must find the next — a wrong guess swaps the cards. Jev decides under uncertainty; rationality is scored, not just hits.</p>
           <div className="mt-2.5 flex justify-center gap-2"><Edu text="The agent never sees the hidden assignment — only the acting role, active players, failed guesses, and round history. Code maintains uniform beliefs over unruled-out candidates and scores each pick by the belief mass it carried. A swap changes the world, so information quality beats luck." />{demoMode && <DemoBadge />}</div>
         </div>
         <Card className="space-y-4 p-5">
@@ -217,7 +278,7 @@ export default function KingdomPage() {
               <Button variant="outline" onClick={() => setSeed(Math.floor(Math.random() * 100000))}>Random</Button>
             </div>
           </Field>
-          <Button size="lg" className="w-full" onClick={() => start(seed, mode)}><Play size={15} /> Deal the cards</Button>
+          <Button size="lg" className="w-full" onClick={() => start(seed, mode)}><Play size={15} /> Take your seats</Button>
         </Card>
       </div>
     );
@@ -229,6 +290,7 @@ export default function KingdomPage() {
   const b = beliefs(game);
   const score = scoreGame(game);
   const placed = [...game.players].filter((p) => p.placement !== null).sort((a, z) => a.placement! - z.placement!);
+  const searchSwaps = role ? game.history.filter((h) => h.activeRole === role && h.swapOccurred) : [];
   const agg = batchRows && batchRows.length > 0 ? {
     acc: batchRows.reduce((a, r) => a + r.accuracy, 0) / batchRows.length,
     swaps: batchRows.reduce((a, r) => a + r.swaps, 0) / batchRows.length,
@@ -237,6 +299,18 @@ export default function KingdomPage() {
 
   return (
     <div>
+      <style>{`
+        .kingdom-felt { background: radial-gradient(circle at 50% 42%, #0d2b22 0%, #081712 52%, #050b09 78%, #030605 100%); }
+        .kingdom-seat { transition: box-shadow .3s ease, border-color .3s ease, transform .3s ease; }
+        .kingdom-float { animation: kfloat 3.2s ease-in-out infinite; }
+        @keyframes kfloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+        .kingdom-dots span { animation: kblink 1.2s infinite; display: inline-block; }
+        .kingdom-dots span:nth-child(2) { animation-delay: .2s; }
+        .kingdom-dots span:nth-child(3) { animation-delay: .4s; }
+        @keyframes kblink { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
+        .kingdom-flip { transform-style: preserve-3d; }
+      `}</style>
+
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-[26px] font-semibold tracking-tight">Kingdom <span className="text-mist-500">· {mode === "watch" ? "Jev plays" : "You play"}</span></h1>
@@ -250,7 +324,7 @@ export default function KingdomPage() {
             <Button size="sm" variant="outline" onClick={() => setAuto((a) => !a)} disabled={thinking && !auto}>{auto ? <Pause size={13} /> : <Play size={13} />} {auto ? "Pause" : "Auto-play"}</Button>
           )}
           {mode === "watch" && !game.completed && !auto && (
-            <Button size="sm" variant="outline" onClick={() => void applyTurn(null)} disabled={thinking}><StepForward size={13} /> {thinking ? "Thinking…" : "Step Jev"}</Button>
+            <Button size="sm" variant="outline" onClick={() => void applyTurn(null)} disabled={thinking || stage !== "idle"}><StepForward size={13} /> {thinking ? "Thinking…" : "Step Jev"}</Button>
           )}
           <Button size="sm" variant="outline" onClick={() => { setAuto(false); setPhase("setup"); }}><RotateCcw size={13} /> New</Button>
         </div>
@@ -272,68 +346,147 @@ export default function KingdomPage() {
         })}
       </div>
 
-      <AnimatePresence>
-        {banner && (
-          <motion.div key={`${banner.text}-${game.round}`} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className={cn("mb-4 rounded-xl border px-4 py-3 text-center", banner.kind === "correct" ? "border-emerald-400/30 bg-emerald-400/10" : "border-red-400/30 bg-red-400/10")}>
-            <div className={cn("text-[15px] font-bold tracking-[0.12em]", banner.kind === "correct" ? "text-emerald-200" : "text-red-200")}>{banner.text}</div>
-            <div className="mt-0.5 text-[12.5px] text-mist-300">{banner.sub}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       {error && <div className="mb-4"><ErrorBox title="Turn failed" detail={error} /></div>}
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-4">
-          {/* Players */}
-          <Card className="p-4">
-            <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-mist-500"><Users size={12} /> Players — roles hidden until completed</div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {game.players.map((p) => {
+          {/* ROUND TABLE */}
+          <Card className="overflow-hidden p-4">
+            <div className="relative mx-auto aspect-square w-full max-w-[600px] select-none" role="grid" aria-label="Round table">
+              {/* felt */}
+              <div className="kingdom-felt absolute rounded-full border border-amber-200/10 shadow-pop" style={{ inset: "17%" }} />
+              <div className="absolute rounded-full border border-dashed border-amber-100/10" style={{ inset: "20%" }} />
+
+              {/* swap trails: arcs of this search's swaps */}
+              <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                {searchSwaps.map((h, i) => {
+                  const a = seatPos(seatIdx(h.actingPlayer));
+                  const c = seatPos(seatIdx(h.guessedPlayer));
+                  return (
+                    <path key={`${h.round}-${i}`} d={`M ${a.x} ${a.y} Q 50 50 ${c.x} ${c.y}`} fill="none"
+                      stroke="#fbbf24" strokeWidth="0.5" strokeDasharray="1.6 1.2" opacity={0.35 + 0.1 * Math.min(i, 3)} />
+                  );
+                })}
+              </svg>
+
+              {/* center emblem */}
+              <div className="absolute flex flex-col items-center justify-center text-center" style={{ inset: "34%" }}>
+                <AnimatePresence mode="wait">
+                  {verdict ? (
+                    <motion.div key={`v-${game.round}-${verdict.text}`} initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.15 }}
+                      className={cn("rounded-2xl border px-6 py-4", verdict.kind === "correct" ? "border-emerald-400/50 bg-emerald-400/15" : "border-red-400/50 bg-red-400/15")}>
+                      <div className={cn("text-[34px] font-black tracking-[0.1em]", verdict.kind === "correct" ? "text-emerald-200" : "text-red-200")}>{verdict.text}</div>
+                      <div className="mt-1 max-w-[220px] text-[11.5px] leading-snug text-mist-200">{verdict.sub}</div>
+                    </motion.div>
+                  ) : (
+                    <motion.div key={`c-${role ?? "done"}-${holder ?? ""}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      {game.completed ? (
+                        <div><Trophy size={26} className="mx-auto text-amber-200" /><div className="mt-1 font-mono text-[11px] uppercase tracking-[0.2em] text-mist-300">Court assembled</div></div>
+                      ) : (
+                        <div>
+                          <div className={cn("mx-auto flex h-14 w-14 items-center justify-center rounded-full border font-serif text-[26px]", role ? ROLE_TONE[role] : "")}>{role?.[0]}</div>
+                          <div className="mt-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-mist-300">{role} seeks {ROLES[game.activeRoleIdx + 1]}</div>
+                          <div className="mt-0.5 text-[12px] text-mist-400">{thinking ? "reading the table…" : stage === "idle" && !game.completed ? (mode === "human" ? "your move — pick a seat" : "awaiting decision") : ""}</div>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* seats */}
+              {game.players.map((p, i) => {
+                const pos = seatPos(i);
                 const isHolder = holder === p.id;
                 const ruledOut = game.failedGuesses.includes(p.id);
-                const clickable = mode === "human" && !game.completed && !thinking && targets.includes(p.id);
+                const clickable = mode === "human" && !game.completed && !thinking && stage === "idle" && targets.includes(p.id);
+                const fails = game.history.filter((h) => h.guessedPlayer === p.id && h.result === "incorrect").length;
                 return (
-                  <button
-                    key={p.id}
-                    disabled={!clickable}
-                    onClick={() => void applyTurn(p.id)}
-                    className={cn(
-                      "rounded-xl border p-3 text-left transition-all",
-                      !p.active && "border-line/10 bg-wash/[0.02] opacity-80",
-                      p.active && isHolder && "border-amber-400/50 bg-amber-400/[0.07] shadow-pop",
-                      p.active && !isHolder && "border-line/10 bg-ink-950",
-                      clickable && "cursor-pointer hover:border-emerald-400/50 hover:bg-emerald-400/[0.05]",
-                      !clickable && p.active && "cursor-default"
-                    )}
-                    aria-label={`${p.id}${isHolder ? `, holds ${role}` : ""}${p.active ? "" : `, completed ${p.completedRole}`}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-[14px] font-bold">{p.id}</span>
-                      {isHolder && p.active && <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-200">{role}</span>}
-                    </div>
-                    <div className="mt-1 text-[11.5px] text-mist-400">
-                      {!p.active ? <span className="text-emerald-300 font-semibold">{ordinal(p.placement!)} · was {p.completedRole}</span>
-                        : ruledOut ? <span className="text-mist-500">ruled out this search</span>
-                        : isHolder ? <span>deciding…</span> : <span>active</span>}
-                    </div>
-                  </button>
+                  <div key={p.id} className="absolute" style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%, -50%)" }}>
+                    <button
+                      disabled={!clickable}
+                      onClick={() => void applyTurn(p.id)}
+                      aria-label={`${p.id}${isHolder ? `, holds ${role}` : ""}${p.active ? "" : `, completed ${p.completedRole}`}`}
+                      className={cn(
+                        "kingdom-seat relative flex w-[74px] flex-col items-center rounded-2xl border px-2 pb-2 pt-2.5 backdrop-blur sm:w-[88px]",
+                        !p.active && "border-line/10 bg-ink-900/90",
+                        p.active && isHolder && "border-amber-300/70 bg-amber-300/[0.08] shadow-pop",
+                        p.active && !isHolder && "border-line/15 bg-ink-900/90",
+                        clickable && "cursor-pointer hover:-translate-y-0.5 hover:border-emerald-400/60 hover:bg-emerald-400/[0.07]"
+                      )}
+                    >
+                      {isHolder && p.active && (
+                        <motion.span layoutId="turnRing" className="pointer-events-none absolute -inset-1.5 rounded-[18px] border-2 border-amber-300/80" transition={{ type: "spring", stiffness: 350, damping: 30 }} />
+                      )}
+                      <span className={cn("kingdom-float flex h-10 w-10 items-center justify-center rounded-full border font-mono text-[15px] font-bold", !p.active ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : isHolder ? "border-amber-300/60 bg-amber-300/10 text-amber-100" : "border-line/20 bg-ink-800 text-mist-100")}>
+                        {p.active ? p.id.replace("P", "") : "♛"}
+                      </span>
+                      <span className="mt-1 font-mono text-[11px] font-bold">{p.id}</span>
+                      <span className="mt-0.5 flex h-4 items-center gap-1 text-[10px] text-mist-400">
+                        {!p.active ? <span className="font-semibold text-emerald-300">{ordinal(p.placement!)} · {p.completedRole}</span>
+                          : ruledOut ? <span className="text-mist-500">ruled out{fails > 1 ? ` ×${fails}` : ""}</span>
+                          : isHolder ? <span className="text-amber-200">{role}</span> : <span>active</span>}
+                      </span>
+                      {/* hidden role chip: face-down until exit reveals it */}
+                      <span className={cn("kingdom-flip mt-1.5 flex h-5 w-12 items-center justify-center rounded border font-mono text-[9px]", !p.active ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-200 [transform:rotateY(180deg)]" : "border-line/20 bg-ink-800 text-mist-500")}>
+                        {!p.active ? p.completedRole?.slice(0, 5).toUpperCase() : "···"}
+                      </span>
+                    </button>
+                  </div>
                 );
               })}
+
+              {/* thought / decision bubbles */}
+              <div className="pointer-events-none absolute inset-0" aria-live="polite">
+                <AnimatePresence>
+                  {thinking && holder && (
+                    <Bubble key={`think-${game.round}`} pos={seatPos(seatIdx(holder))} tone="thinking">
+                      <span className="font-mono text-[11px] font-bold">{holder}</span>
+                      <span className="text-[11px] text-mist-300"> ponders</span>
+                      <span className="kingdom-dots text-[11px]"><span>·</span><span>·</span><span>·</span></span>
+                    </Bubble>
+                  )}
+                  {!thinking && pending && holder && (stage === "reveal" || stage === "swap" || stage === "verdict") && (
+                    <Bubble key={`pick-${game.round}-${pending.pick}`} pos={seatPos(seatIdx(holder))} tone={stage === "verdict" ? "dim" : "pick"}>
+                      <span className="font-mono text-[11px] font-bold">{pending.pick}</span>
+                      <span className="text-[11px] text-mist-300"> holds {role ? ROLES[game.activeRoleIdx + 1] : ""}?</span>
+                      <span className="mono-num ml-1 font-mono text-[11px] font-bold text-violet-300">{fmtPct(pending.prob)}</span>
+                    </Bubble>
+                  )}
+                </AnimatePresence>
+
+                {/* flying swap chips */}
+                <AnimatePresence>
+                  {swapAnim && (
+                    <React.Fragment key={`swap-${game.round}`}>
+                      <motion.span initial={{ left: `${swapAnim.from.x}%`, top: `${swapAnim.from.y}%`, opacity: 1, scale: 1 }}
+                        animate={{ left: `${swapAnim.to.x}%`, top: `${swapAnim.to.y}%`, opacity: 1, scale: 1.25 }}
+                        exit={{ opacity: 0 }} transition={{ duration: 0.8, ease: "easeInOut" }}
+                        className="absolute z-10 flex h-7 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border border-amber-300 bg-amber-300/90 font-mono text-[10px] font-black text-amber-950 shadow-pop">⇄</motion.span>
+                      <motion.span initial={{ left: `${swapAnim.to.x}%`, top: `${swapAnim.to.y}%`, opacity: 1, scale: 1 }}
+                        animate={{ left: `${swapAnim.from.x}%`, top: `${swapAnim.from.y}%`, opacity: 1, scale: 1.25 }}
+                        exit={{ opacity: 0 }} transition={{ duration: 0.8, ease: "easeInOut" }}
+                        className="absolute z-10 flex h-7 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border border-amber-300 bg-amber-300/90 font-mono text-[10px] font-black text-amber-950 shadow-pop">⇄</motion.span>
+                    </React.Fragment>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
-            {mode === "human" && !game.completed && (
-              <p className="mt-2 text-[12px] text-mist-500">{thinking ? "Jev is scoring the position…" : `Click a highlighted card to guess who holds the ${ROLES[game.activeRoleIdx + 1]} card.`}</p>
-            )}
+            <div className="mono-num mt-2 flex flex-wrap justify-between gap-2 px-1 font-mono text-[11.5px] text-mist-500">
+              <span>Round {game.round} · {score.correctGuesses}/{score.totalGuesses} correct · {score.totalSwaps} swaps</span>
+              <span>ρ̄ {score.meanRationality.toFixed(2)} · {searchSwaps.length} failed this search</span>
+            </div>
           </Card>
 
-          {/* Decision panel */}
+          {/* Beliefs */}
           <Card className="p-5">
-            <SectionHead eyebrow="Decision" title={game.completed ? "Game complete" : `Who holds the ${ROLES[game.activeRoleIdx + 1]} card?`} hint={game.completed ? scoreSummary(score) : "Code beliefs from history — uniform over unruled-out candidates."} />
+            <SectionHead eyebrow="Beliefs" title={game.completed ? "Final table" : `Who holds the ${ROLES[game.activeRoleIdx + 1]} card?`} hint="Code-computed from history — uniform over unruled-out candidates. Fed to Jev with the history." />
             {!game.completed && (
               <div className="space-y-2">
                 {targets.map((t) => (
                   <div key={t}>
                     <div className="mb-1 flex justify-between font-mono text-[12.5px]">
-                      <span className={cn("text-mist-300", game.failedGuesses.includes(t) && "line-through opacity-60")}>{t}{t === holder ? "" : ""}</span>
+                      <span className={cn("text-mist-300", game.failedGuesses.includes(t) && "line-through opacity-60")}>{t}</span>
                       <span className="mono-num font-semibold">{fmtPct(b[t] ?? 0)}</span>
                     </div>
                     <ProbBar value={b[t] ?? 0} tone={game.failedGuesses.includes(t) ? "red" : "violet"} height={7} />
@@ -395,7 +548,7 @@ export default function KingdomPage() {
                 ))}
               </div>
             )}
-            {!game.completed && game.players.some((p) => p.active) && (
+            {!game.completed && (
               <p className="mt-2 text-[11.5px] text-mist-500">Thief takes the final place automatically.</p>
             )}
           </Card>
@@ -441,6 +594,28 @@ export default function KingdomPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function Bubble({ pos, tone, children }: { pos: { x: number; y: number }; tone: "thinking" | "pick" | "dim"; children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6, scale: 0.92 }}
+      animate={{ opacity: tone === "dim" ? 0.75 : 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.92 }}
+      transition={{ type: "spring", stiffness: 400, damping: 26 }}
+      className="absolute z-20"
+      style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%, -118%)" }}
+    >
+      <div className={cn(
+        "whitespace-nowrap rounded-2xl rounded-bl-md border px-3 py-1.5 shadow-pop backdrop-blur",
+        tone === "thinking" && "border-line/20 bg-ink-800/95",
+        tone === "pick" && "border-violet-400/50 bg-ink-800/95",
+        tone === "dim" && "border-line/15 bg-ink-800/90"
+      )}>
+        {children}
+      </div>
+    </motion.div>
   );
 }
 
