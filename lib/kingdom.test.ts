@@ -232,3 +232,50 @@ describe("card-level elimination (anti ping-pong)", () => {
     expect(entry?.roles).toContain("Queen");
   });
 });
+
+describe("disproven cards are un-offerable", () => {
+  it("choice criteria exclude the banned holder after a swap", () => {
+    const g0 = newGame(42);
+    const wrong = validTargets(g0).find((t) => g0.assignment[t] !== "Queen")!;
+    const g1 = guess(g0, wrong).game;
+    // old holder now holds the disproven card: must not be offered
+    const { criteria } = choiceCriteria(g1);
+    const bannedHolder = holderOf(g0, "King");
+    expect(Object.keys(criteria)).not.toContain(bannedHolder);
+    expect(Object.keys(criteria).length).toBe(validTargets(g1).length - 1);
+  });
+  it("available_actions match the offered choices", () => {
+    const g0 = newGame(42);
+    const wrong = validTargets(g0).find((t) => g0.assignment[t] !== "Queen")!;
+    const g1 = guess(g0, wrong).game;
+    const obs = observableState(g1) as { available_actions: string[] };
+    const { criteria } = choiceCriteria(g1);
+    expect(obs.available_actions.sort()).toEqual(
+      Object.keys(criteria).map((k) => `GUESS(${k})`).sort()
+    );
+  });
+  it("the true holder is never excluded across a full game", () => {
+    let g = newGame(1234);
+    let guard = 0;
+    let wrongsThisRole = 0;
+    while (!g.completed && guard++ < 100) {
+      const next = ROLES[g.activeRoleIdx + 1];
+      const { criteria } = choiceCriteria(g);
+      const offered = Object.keys(criteria);
+      expect(offered.length).toBeGreaterThan(0);
+      const truth = Object.entries(g.assignment).find(([, r]) => r === next)![0];
+      expect(offered).toContain(truth);
+      // two adversarial wrongs per role, then take the truth
+      const wrongPick = offered.find((t) => t !== truth);
+      const roleBefore = ROLES[g.activeRoleIdx];
+      if (wrongPick && wrongsThisRole < 2) {
+        g = guess(g, wrongPick).game;
+        if (ROLES[g.activeRoleIdx] === roleBefore) wrongsThisRole += 1;
+      } else {
+        g = guess(g, truth).game;
+        wrongsThisRole = 0;
+      }
+    }
+    expect(g.completed).toBe(true);
+  });
+});

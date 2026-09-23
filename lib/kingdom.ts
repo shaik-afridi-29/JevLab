@@ -169,6 +169,9 @@ export function guess(game: KingdomGame, targetId: string): { game: KingdomGame;
 /** Observable state: everything a real player in this position could know. */
 export function observableState(game: KingdomGame): Record<string, unknown> {
   const role = game.completed ? null : ROLES[game.activeRoleIdx];
+  // Only live candidates are actionable; disproven cards are not offered.
+  let offered = validTargets(game).filter((t) => !isRuledOut(game, t));
+  if (offered.length === 0) offered = validTargets(game);
   return {
     current_role: role,
     acting_player: role ? holderOf(game, role) : null,
@@ -190,7 +193,7 @@ export function observableState(game: KingdomGame): Record<string, unknown> {
       result: h.result,
       swap_occurred: h.swapOccurred,
     })),
-    available_actions: validTargets(game).map((t) => `GUESS(${t})`),
+    available_actions: offered.map((t) => `GUESS(${t})`),
   };
 }
 
@@ -220,21 +223,25 @@ export function rationality(belief: Record<string, number>, targetId: string): n
   return belief[targetId] ?? 0;
 }
 
-/** Choice criteria for Jev: one option per valid target, keys are player ids. */
+/** Choice criteria for Jev: one option per LIVE target. Disproven cards are
+ *  not offered at all — a gloss saying "don't pick this" is demonstrably
+ *  ignored (ρ 0.00 picks), while exclusion is airtight: the true holder's
+ *  card can never be banned, so it is always offered. */
 export function choiceCriteria(game: KingdomGame): {
   criteria: Record<string, string>;
   indexToTarget: Record<string, string>;
 } {
   const role = ROLES[game.activeRoleIdx];
   const next = ROLES[game.activeRoleIdx + 1];
+  let offered = validTargets(game).filter((t) => !isRuledOut(game, t));
+  if (offered.length === 0) offered = validTargets(game); // defensive; unreachable
   const criteria: Record<string, string> = {};
   const indexToTarget: Record<string, string> = {};
-  for (const t of validTargets(game)) {
-    const banned = (game.cardBans[t] ?? []).includes(next);
-    const failed = game.failedGuesses.includes(t);
+  for (const t of offered) {
     criteria[t] =
-      `${t} — ${banned ? `ruled out for ${next}: this card was already guessed wrong for it` : failed ? "already guessed wrong for this search; only pick if all others are eliminated" : `could hold the ${next} card`}. ` +
-      `History: ${game.history.length} prior rounds, ${game.failedGuesses.length} failed guess(es) this search.`;
+      `${t} — could hold the ${next} card. ` +
+      `History: ${game.history.length} prior rounds, ${game.failedGuesses.length} failed guess(es) this search. ` +
+      `Disproven cards are not listed, so every option here is live.`;
     indexToTarget[t] = t;
   }
   void role;

@@ -401,7 +401,7 @@ export default function KingdomPage() {
                 const isHolder = holder === p.id;
                 const ruledOut = isRuledOut(game, p.id);
                 const bannedByHistory = (game.cardBans[p.id] ?? []).length > 0 && ruledOut && !game.failedGuesses.includes(p.id);
-                const clickable = mode === "human" && !game.completed && !thinking && stage === "idle" && targets.includes(p.id);
+                const clickable = mode === "human" && !game.completed && !thinking && stage === "idle" && targets.includes(p.id) && !ruledOut;
                 const fails = game.history.filter((h) => h.guessedPlayer === p.id && h.result === "incorrect").length;
                 return (
                   <div key={p.id} className="absolute origin-center -translate-x-1/2 -translate-y-1/2 scale-[0.85] min-[500px]:scale-100" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
@@ -409,6 +409,7 @@ export default function KingdomPage() {
                       disabled={!clickable}
                       onClick={() => void applyTurn(p.id)}
                       aria-label={`${p.id}${isHolder ? `, holds ${role}` : ""}${p.active ? "" : `, completed ${p.completedRole}`}`}
+                      title={ruledOut && p.active ? "Disproven by history — not playable" : undefined}
                       className={cn(
                         "kingdom-seat relative flex w-[74px] flex-col items-center rounded-2xl border px-2 pb-2 pt-2.5 backdrop-blur sm:w-[88px]",
                         !p.active && "border-line/10 bg-ink-900/90",
@@ -486,7 +487,7 @@ export default function KingdomPage() {
 
           {/* Beliefs */}
           <Card className="p-5">
-            <SectionHead eyebrow="Beliefs" title={game.completed ? "Final table" : `Who holds the ${ROLES[game.activeRoleIdx + 1]} card?`} hint="Code-computed from history — uniform over unruled-out candidates. Fed to Jev with the history." />
+            <SectionHead eyebrow="Beliefs" title={game.completed ? "Final table" : `Who holds the ${ROLES[game.activeRoleIdx + 1]} card?`} hint="Code-computed from history. Disproven cards (struck) are not offered to Jev or to you." />
             {!game.completed && (
               <div className="space-y-2">
                 {targets.map((t) => (
