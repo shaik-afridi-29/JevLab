@@ -19,6 +19,7 @@ export default function PokemonPage() {
         </div>
       </div>
       <Playground
+      draftKey="pokemon"
         title="Pokémon Battle"
         subtitle="Strategy simulator: which move, is attacking advisable, how dangerous is this?"
         edu="Noul gates the attack decision, Choice picks the move, Score rates danger — three primitives, one battlefield state. Swap HP or types and rerun to feel state-sensitivity."

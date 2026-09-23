@@ -2,27 +2,23 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Copy, Play, Download, Upload, Trash2, GitCompareArrows, Plus } from "lucide-react";
 import { Button, Card, EmptyState, SectionHead, inputCls } from "@/components/ui";
 import { ProbBar } from "@/components/visuals";
 import { useLab } from "@/lib/store";
-import { timeAgo, downloadJson, fmtPct, uid } from "@/lib/utils";
+import { timeAgo, downloadJson, fmtPct, uid, playgroundFor } from "@/lib/utils";
 import type { Experiment } from "@/lib/jev/types";
 import { logUsageFromResponse } from "@/lib/cost";
 
-function playgroundFor(e: Experiment): string {
-  if (e.kind === "noul" || (e.questions.length === 1 && e.questions[0].type === "noul")) return "/noul";
-  if (e.kind === "choice" || (e.questions.length === 1 && e.questions[0].type === "choice")) return "/choice";
-  if (e.kind === "score" || (e.questions.length === 1 && e.questions[0].type === "score")) return "/score";
-  return "/multi";
-}
-
 export default function LibraryPage() {
-  const experiments = useLab((s) => s.experiments);
+  const router = useRouter();
+  const experiments = useLab((s) => s.experiments).filter((e) => !e.isDraft);
   const results = useLab((s) => s.results);
   const upsert = useLab((s) => s.upsertExperiment);
   const remove = useLab((s) => s.removeExperiment);
   const duplicate = useLab((s) => s.duplicateExperiment);
+  const requestOpen = useLab((s) => s.requestOpen);
   const demoMode = useLab((s) => s.demoMode);
   const model = useLab((s) => s.model);
 
@@ -141,7 +137,7 @@ export default function LibraryPage() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line/[0.07] pt-3">
-                  <Link href={playgroundFor(e)}><Button size="sm" variant="subtle"><Play size={12} /> Open</Button></Link>
+                  <Button size="sm" variant="subtle" onClick={() => { requestOpen(e.id); router.push(playgroundFor(e)); }}><Play size={12} /> Open</Button>
                   <Button size="sm" variant="ghost" onClick={() => duplicate(e.id)}><Copy size={12} /> Duplicate</Button>
                   <Button size="sm" variant={inCmp ? "subtle" : "ghost"} onClick={() => { setCmpRes(null); setCompare((c) => (inCmp ? c.filter((x) => x !== e.id) : [...c, e.id].slice(-2))); }}><GitCompareArrows size={12} /> Compare</Button>
                   <Button size="sm" variant="ghost" onClick={() => downloadJson(`${e.name}.json`, e)}><Download size={12} /> Export</Button>

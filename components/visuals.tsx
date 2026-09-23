@@ -212,7 +212,7 @@ export function AnswerCard({ qKey, answer }: { qKey: string; answer: JevAnswer }
       {answer.type === "choice" && (
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mist-500">Highest probability option</div>
-          <div className="mt-1 truncate text-[22px] font-semibold tracking-tight text-mist-50">{answer.choice}</div>
+          <div className="mt-1 truncate text-[22px] font-semibold tracking-tight text-mist-100">{answer.choice}</div>
           <div className="mono-num font-mono text-[15px] text-mist-400">{fmtPct(answer.probabilities[answer.choice] ?? 0)} · confidence {fmtPct(answer.confidence)}</div>
           <div className="mt-4"><ChoiceBarsAbsolute probs={answer.probabilities} top={answer.choice} /></div>
         </div>

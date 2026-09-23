@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { Play, TriangleAlert } from "lucide-react";
+import { Play, TriangleAlert, Square } from "lucide-react";
 import { Button, Card, Edu, ErrorBox, EmptyState, SectionHead, DemoBadge } from "@/components/ui";
 import { RawInspector } from "@/components/visuals";
 import { PRESETS, type Verdict } from "@/lib/jaggedness";
@@ -35,10 +35,16 @@ export default function JaggednessPage() {
   const [done, setDone] = React.useState(0);
   const [results, setResults] = React.useState<Record<string, PresetResult>>({});
   const [error, setError] = React.useState<string | null>(null);
+  const [cancelled, setCancelled] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const runAll = async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setRunning(true);
     setError(null);
+    setCancelled(false);
     setResults({});
     setDone(0);
     let completed = 0;
@@ -50,6 +56,7 @@ export default function JaggednessPage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ...v.request, demo: demoMode }),
+            signal: ctrl.signal,
           });
           const body = await res.json();
           if (!res.ok) throw new Error(body.error ?? `${preset.title} / ${v.label} failed`);
@@ -66,7 +73,11 @@ export default function JaggednessPage() {
         setDone(completed);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gauntlet failed");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setCancelled(true);
+      } else {
+        setError(e instanceof Error ? e.message : "Gauntlet failed");
+      }
     } finally {
       setRunning(false);
     }
@@ -93,10 +104,16 @@ export default function JaggednessPage() {
             {demoMode && <DemoBadge />}
           </div>
         </div>
-        <Button onClick={runAll} disabled={running} size="lg" kbd="⌘⏎">
-          <Play size={15} /> {running ? `Running ${done}/${PRESETS.length}…` : Object.keys(results).length ? "Run gauntlet again" : "Run the gauntlet"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={runAll} disabled={running} size="lg" kbd="⌘⏎">
+            <Play size={15} /> {running ? `Running ${done}/${PRESETS.length}…` : Object.keys(results).length ? "Run gauntlet again" : "Run the gauntlet"}
+          </Button>
+          {running && <Button onClick={() => abortRef.current?.abort()} variant="outline" size="lg" aria-label="Stop gauntlet"><Square size={15} /></Button>}
+        </div>
       </div>
+      {cancelled && !running && (
+        <div className="mb-4 rounded-xl border border-amber-400/25 bg-amber-400/[0.06] px-4 py-2.5 text-[12.5px] text-amber-200">Cancelled — completed presets kept, no further spend.</div>
+      )}
 
       {running && (
         <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-wash/[0.07]">

@@ -6,6 +6,7 @@ import { uid } from "@/lib/utils";
 export default function MoviePage() {
   return (
     <Playground
+      draftKey="movie"
       title="Movie Night"
       subtitle="Group fit as a Choice distribution. Change preferences or the lineup and rerun — watch the mass move."
       edu="Choice returns one probability per option, summing to 1. Editing state (preferences) or criteria (the lineup) redistributes mass — the demo of state-sensitivity in a fun setting."

@@ -6,6 +6,7 @@ import { uid } from "@/lib/utils";
 export default function CustomGamePage() {
   return (
     <Playground
+      draftKey="custom"
       title="Custom Game"
       subtitle="Design your own scenario: state is the world, questions are the mechanics. Save it to the library when it plays well."
       edu="A custom experiment with a name, description, state, questions, variables and tags. Run, duplicate, edit, delete, compare and export as JSON from the library."

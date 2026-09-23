@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { Play, Plus, Trash2 } from "lucide-react";
+import { Play, Plus, Trash2, Square } from "lucide-react";
 import { Button, Card, Edu, ErrorBox, EmptyState, SectionHead, DemoBadge, Field, inputCls } from "@/components/ui";
 import { parseStateValue } from "@/components/editors";
 import { ProbBar, RawInspector } from "@/components/visuals";
@@ -25,16 +25,21 @@ export default function StateSensitivityPage() {
   const [error, setError] = React.useState<{ title: string; detail: string } | null>(null);
   const [lastReq, setLastReq] = React.useState<JevApiRequest | null>(null);
   const [lastResp, setLastResp] = React.useState<JevApiResponse | null>(null);
+  const [cancelled, setCancelled] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const doRun = async () => {
-    setLoading(true); setError(null); setRows(null);
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true); setError(null); setRows(null); setCancelled(false);
     try {
       const out: { label: string; p: number }[] = [];
       let lastR: JevApiResponse | null = null; let lastQ: JevApiRequest | null = null;
       for (let i = 0; i < states.length; i++) {
         const req = { model, state: parseStateValue(states[i]), questions: { probe: { type: "noul" as const, instructions: question } } };
         lastQ = req as JevApiRequest;
-        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }) });
+        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }), signal: ctrl.signal });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `State ${i + 1} failed`);
         logUsageFromResponse("state-sensitivity", body);
@@ -45,7 +50,11 @@ export default function StateSensitivityPage() {
       }
       setLastResp(lastR); setLastReq(lastQ);
     } catch (e) {
-      setError({ title: "Jev request failed", detail: e instanceof Error ? e.message : "Unknown error" });
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setCancelled(true);
+      } else {
+        setError({ title: "Jev request failed", detail: e instanceof Error ? e.message : "Unknown error" });
+      }
     } finally { setLoading(false); }
   };
 
@@ -66,7 +75,11 @@ export default function StateSensitivityPage() {
         <Card className="p-5">
           <SectionHead eyebrow="Fixed" title="Question" />
           <Field label="Noul instructions"><input value={question} onChange={(e) => setQuestion(e.target.value)} className={inputCls} /></Field>
-          <Button onClick={doRun} disabled={loading} className="mt-5 w-full" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? "Running…" : "Run all states"}</Button>
+          <div className="mt-5 flex gap-2">
+            <Button onClick={doRun} disabled={loading} className="flex-1" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? "Running…" : "Run all states"}</Button>
+            {loading && <Button onClick={() => abortRef.current?.abort()} variant="outline" size="lg" aria-label="Stop run"><Square size={15} /></Button>}
+          </div>
+          {cancelled && !loading && <p className="mt-2 text-[12px] text-amber-300">Cancelled — partial results kept, no further spend.</p>}
         </Card>
         <Card className="p-5">
           <SectionHead eyebrow="Varied" title="States" right={<Button size="sm" variant="outline" onClick={() => setStates((s) => [...s, ""])}><Plus size={13} /> Add</Button>} />

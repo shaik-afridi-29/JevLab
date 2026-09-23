@@ -18,6 +18,10 @@ interface LabState {
   experiments: Experiment[];
   results: ExperimentResult[];
   ledger: LedgerEntry[];
+  /** Autosaved work-in-progress, keyed by playground. Never shown in the library. */
+  drafts: Record<string, Experiment>;
+  /** One-shot id of a library experiment a playground should load on mount. */
+  openRequest: string | null;
   demoMode: boolean;
   model: string;
   hydrated: boolean;
@@ -29,6 +33,9 @@ interface LabState {
   addResult: (r: ExperimentResult) => void;
   logUsage: (e: LedgerEntry) => void;
   clearLedger: () => void;
+  saveDraft: (key: string, e: Experiment) => void;
+  requestOpen: (id: string) => void;
+  consumeOpenRequest: () => string | null;
   clearResultsFor: (experimentId: string) => void;
   ensureSeeded: () => void;
 }
@@ -43,6 +50,8 @@ export const useLab = create<LabState>()(
       experiments: [],
       results: [],
       ledger: [],
+      drafts: {},
+      openRequest: null,
       demoMode: false,
       model: "jev-latest",
       hydrated: false,
@@ -78,6 +87,14 @@ export const useLab = create<LabState>()(
       addResult: (r) => set((s) => ({ results: [r, ...s.results].slice(0, 400) })),
       logUsage: (e) => set((s) => ({ ledger: [...s.ledger, e].slice(-500) })),
       clearLedger: () => set({ ledger: [] }),
+      saveDraft: (key, e) =>
+        set((s) => ({ drafts: { ...s.drafts, [key]: { ...e, updatedAt: new Date().toISOString() } } })),
+      requestOpen: (id) => set({ openRequest: id }),
+      consumeOpenRequest: () => {
+        const id = get().openRequest;
+        if (id) set({ openRequest: null });
+        return id;
+      },
       clearResultsFor: (experimentId) =>
         set((s) => ({ results: s.results.filter((r) => r.experimentId !== experimentId) })),
       ensureSeeded: () => {

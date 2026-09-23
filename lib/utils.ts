@@ -52,3 +52,13 @@ export async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
+
+import type { Experiment } from "@/lib/jev/types";
+
+/** Which playground route can faithfully host this experiment. */
+export function playgroundFor(e: Experiment): string {
+  if (e.kind === "noul" || (e.questions.length === 1 && e.questions[0].type === "noul")) return "/noul";
+  if (e.kind === "choice" || (e.questions.length === 1 && e.questions[0].type === "choice")) return "/choice";
+  if (e.kind === "score" || (e.questions.length === 1 && e.questions[0].type === "score")) return "/score";
+  return "/multi";
+}

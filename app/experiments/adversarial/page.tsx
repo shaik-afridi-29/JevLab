@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { Play, Plus, Trash2 } from "lucide-react";
+import { Play, Plus, Trash2, Square } from "lucide-react";
 import { Button, Card, Edu, ErrorBox, EmptyState, SectionHead, DemoBadge, Field, inputCls } from "@/components/ui";
 import { parseStateValue } from "@/components/editors";
 import { ProbBar, RawInspector } from "@/components/visuals";
@@ -28,14 +28,19 @@ export default function AdversarialPage() {
   const [rows, setRows] = React.useState<{ label: string; p: number }[] | null>(null);
   const [error, setError] = React.useState<{ title: string; detail: string } | null>(null);
   const [last, setLast] = React.useState<{ resp: JevApiResponse; req: JevApiRequest } | null>(null);
+  const [cancelled, setCancelled] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const doRun = async () => {
-    setLoading(true); setError(null); setRows(null);
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true); setError(null); setRows(null); setCancelled(false);
     try {
       const out: { label: string; p: number }[] = [];
       for (let i = 0; i < variants.length; i++) {
         const req = { model, state: parseStateValue(variants[i]), questions: { probe: { type: "noul" as const, instructions: question } } };
-        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }) });
+        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }), signal: ctrl.signal });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `Variant ${i + 1} failed`);
         logUsageFromResponse("adversarial", body);
@@ -45,7 +50,11 @@ export default function AdversarialPage() {
         if (i === variants.length - 1) setLast({ resp: body, req: req as JevApiRequest });
       }
     } catch (e) {
-      setError({ title: "Adversarial run failed", detail: e instanceof Error ? e.message : "Unknown error" });
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setCancelled(true);
+      } else {
+        setError({ title: "Adversarial run failed", detail: e instanceof Error ? e.message : "Unknown error" });
+      }
     } finally { setLoading(false); }
   };
 
@@ -86,7 +95,11 @@ export default function AdversarialPage() {
               </div>
             ))}
           </div>
-          <Button onClick={doRun} disabled={loading} className="mt-5 w-full" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? "Running…" : "Run all variants"}</Button>
+          <div className="mt-5 flex gap-2">
+            <Button onClick={doRun} disabled={loading} className="flex-1" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? "Running…" : "Run all variants"}</Button>
+            {loading && <Button onClick={() => abortRef.current?.abort()} variant="outline" size="lg" aria-label="Stop run"><Square size={15} /></Button>}
+          </div>
+          {cancelled && !loading && <p className="mt-2 text-[12px] text-amber-300">Cancelled — partial results kept, no further spend.</p>}
         </Card>
         <Card className="p-5">
           <SectionHead eyebrow="Observed" title="Comparison table" hint="One row per variant." />

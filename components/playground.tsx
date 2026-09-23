@@ -14,10 +14,12 @@ import { useLab } from "@/lib/store";
 import { uid, downloadJson, timeAgo } from "@/lib/utils";
 
 export function Playground({
-  title, subtitle, edu, initial, allowed = ["noul", "choice", "score"], singleType,
+  title, subtitle, edu, initial, draftKey, allowed = ["noul", "choice", "score"], singleType,
 }: {
   title: string; subtitle: string; edu: string;
   initial: Experiment;
+  /** Stable key for this playground's autosave draft (e.g. "noul", "detective"). */
+  draftKey: string;
   allowed?: QuestionType[];
   singleType?: QuestionType;
 }) {
@@ -25,32 +27,66 @@ export function Playground({
   const model = useLab((s) => s.model);
   const upsert = useLab((s) => s.upsertExperiment);
   const addResult = useLab((s) => s.addResult);
+  const saveDraft = useLab((s) => s.saveDraft);
   const { loading, response, request, error, run, reset } = useJevRun();
 
-  const [exp, setExp] = React.useState<Experiment>(initial);
-  const [stateText, setStateText] = React.useState<string>(
-    typeof initial.state === "string" ? initial.state : JSON.stringify(initial.state, null, 2)
-  );
+  const stringifyState = (state: unknown) =>
+    typeof state === "string" ? state : JSON.stringify(state, null, 2);
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+
+  // Mount resolution: opened library experiment wins, then existing draft, then initial.
+  // consumeOpenRequest clears the one-shot so a reload falls back to the draft.
+  const [boot] = React.useState(() => {
+    const s = useLab.getState();
+    const reqId = s.consumeOpenRequest();
+    const found = reqId ? s.experiments.find((e) => e.id === reqId) : undefined;
+    if (found)
+      return { exp: clone(found), stateText: stringifyState(found.state), savedId: found.id as string | null };
+    const d = s.drafts[draftKey];
+    if (d) return { exp: clone(d), stateText: stringifyState(d.state), savedId: null as string | null };
+    return { exp: clone(initial), stateText: stringifyState(initial.state), savedId: null as string | null };
+  });
+  const [exp, setExp] = React.useState<Experiment>(boot.exp);
+  const [stateText, setStateText] = React.useState<string>(boot.stateText);
+  const [savedId, setSavedId] = React.useState<string | null>(boot.savedId);
   const [savedTick, setSavedTick] = React.useState<string | null>(null);
+  const [savedAt, setSavedAt] = React.useState<string | null>(null);
   const dirty = React.useRef(false);
 
-  // Autosave draft on change (debounced)
+  // Autosave to the draft slot only — the library holds deliberate saves.
   React.useEffect(() => {
     dirty.current = true;
     const t = setTimeout(() => {
       if (!dirty.current) return;
       dirty.current = false;
-      upsert({ ...exp, state: parseStateValue(stateText), name: exp.name });
+      saveDraft(draftKey, { ...exp, state: parseStateValue(stateText), name: exp.name });
       setSavedTick(new Date().toISOString());
     }, 1200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateText, exp.questions, exp.name, exp.description]);
+  }, [stateText, exp.questions, exp.name, exp.description, draftKey]);
 
   const issues = React.useMemo(
     () => validateExperiment({ state: parseStateValue(stateText), questions: exp.questions }),
     [stateText, exp.questions]
   );
+
+  const doSave = React.useCallback(() => {
+    const id = savedId ?? uid("exp");
+    const now = new Date().toISOString();
+    const prev = useLab.getState().experiments.find((e) => e.id === id);
+    upsert({
+      ...exp,
+      id,
+      isDraft: false,
+      state: parseStateValue(stateText),
+      createdAt: prev?.createdAt ?? now,
+      updatedAt: now,
+    });
+    setSavedId(id);
+    setSavedTick(now);
+    setSavedAt(now);
+  }, [exp, stateText, savedId, upsert]);
 
   const doRun = React.useCallback(async () => {
     const req = experimentToRequest({ state: parseStateValue(stateText), questions: exp.questions }, model);
@@ -58,12 +94,12 @@ export function Playground({
     const resp = await run(req);
     if (resp) {
       addResult({
-        experimentId: exp.id, runId: uid("run"), timestamp: new Date().toISOString(),
+        experimentId: savedId ?? `draft-${draftKey}`, runId: uid("run"), timestamp: new Date().toISOString(),
         latencyMs: (resp as { _meta?: { latencyMs?: number } })._meta?.latencyMs ?? Date.now() - started,
         response: resp, request: req, demo: demoMode,
       });
     }
-  }, [exp, stateText, model, run, addResult, demoMode]);
+  }, [exp, stateText, model, run, addResult, demoMode, savedId, draftKey]);
 
   // ⌘⏎ runs, ⌘S saves
   React.useEffect(() => {
@@ -72,14 +108,13 @@ export function Playground({
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); doRun(); }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        upsert({ ...exp, state: parseStateValue(stateText) });
-        setSavedTick(new Date().toISOString());
+        doSave();
       }
     };
     window.addEventListener("jev:run", onRun);
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("jev:run", onRun); window.removeEventListener("keydown", onKey); };
-  }, [doRun, exp, stateText, upsert]);
+  }, [doRun, doSave]);
 
   const updateQ = (q: Question) => setExp((e) => ({ ...e, questions: e.questions.map((x) => (x.id === q.id ? q : x)) }));
 
@@ -92,15 +127,16 @@ export function Playground({
           <div className="mt-2.5 flex items-center gap-2">
             <Edu text={edu} />
             {demoMode && <DemoBadge />}
-            {savedTick && <span className="text-[11.5px] text-mist-500">Draft autosaved {timeAgo(savedTick)}</span>}
+            {savedAt && <span className="text-[11.5px] text-emerald-300">Saved to library {timeAgo(savedAt)}</span>}
+            {!savedAt && savedTick && <span className="text-[11.5px] text-mist-500">Draft autosaved {timeAgo(savedTick)}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => downloadJson(`${exp.name || "experiment"}.json`, { ...exp, state: parseStateValue(stateText) })}>
             <Download size={14} /> Export
           </Button>
-          <Button variant="outline" size="sm" onClick={() => { upsert({ ...exp, state: parseStateValue(stateText) }); setSavedTick(new Date().toISOString()); }}>
-            <Save size={14} /> Save
+          <Button variant="outline" size="sm" onClick={doSave}>
+            <Save size={14} /> {savedId ? "Saved" : "Save"}
           </Button>
           <Button size="sm" disabled={loading || issues.length > 0} onClick={doRun} kbd="⌘⏎">
             <Play size={14} /> {loading ? "Running…" : "Run with Jev"}
@@ -183,6 +219,25 @@ export function Playground({
             <RawInspector response={response} request={request} />
           </div>
         )}
+      </div>
+
+      {/* Sticky action bar: on small screens the primary Run would otherwise
+          sit a full page away from the state it runs on. */}
+      <div className="h-20 xl:hidden" aria-hidden="true" />
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line/[0.08] bg-ink-950/92 px-4 py-3 backdrop-blur xl:hidden">
+        <div className="mx-auto flex max-w-6xl items-center gap-2">
+          <Button variant="outline" size="sm" onClick={doSave} className="shrink-0">
+            <Save size={14} /> {savedId ? "Saved" : "Save"}
+          </Button>
+          <Button size="sm" disabled={loading || issues.length > 0} onClick={doRun} className="flex-1">
+            <Play size={14} /> {loading ? "Running…" : response ? "Run again" : "Run with Jev"}
+          </Button>
+          {savedAt ? (
+            <span className="hidden shrink-0 text-[11px] text-emerald-300 sm:inline">Saved</span>
+          ) : (
+            savedTick && <span className="hidden shrink-0 text-[11px] text-mist-500 sm:inline">Draft</span>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -26,6 +26,8 @@ export interface Experiment {
   updatedAt: string;
   tags: string[];
   kind?: string;
+  /** True while the entry is an autosaved draft; drafts never list in the library. */
+  isDraft?: boolean;
 }
 
 export interface ExperimentResult {

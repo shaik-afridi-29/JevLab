@@ -6,6 +6,7 @@ import { uid } from "@/lib/utils";
 export default function ScorePage() {
   return (
     <Playground
+      draftKey="score"
       title="Score Playground"
       subtitle="Evaluate something against an ordered scale."
       edu="Score evaluates an item against an ordered scale. The resulting score is derived from the distribution — it can land between levels. Levels are ordered, not metric: do not treat 1.6 as '80% frustrated'."

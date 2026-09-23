@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Play } from "lucide-react";
+import { Play, Square } from "lucide-react";
 import { Button, Card, Edu, ErrorBox, EmptyState, SectionHead, DemoBadge, Field, inputCls } from "@/components/ui";
 import { StateEditor, parseStateValue } from "@/components/editors";
 import { RunsLineChart, RawInspector } from "@/components/visuals";
@@ -22,16 +22,21 @@ export default function RepeatedPage() {
   const [values, setValues] = React.useState<number[] | null>(null);
   const [error, setError] = React.useState<{ title: string; detail: string } | null>(null);
   const [last, setLast] = React.useState<{ resp: JevApiResponse; req: JevApiRequest } | null>(null);
+  const [cancelled, setCancelled] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const stats = values ? summarize(values) : null;
 
   const doRun = async () => {
-    setLoading(true); setError(null); setValues([]); setProgress(0);
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true); setError(null); setCancelled(false); setValues([]); setProgress(0);
     const out: number[] = [];
     try {
       for (let i = 0; i < runs; i++) {
         const req = { model, state: parseStateValue(stateText), questions: { probe: { type: "noul" as const, instructions: question } } };
-        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }) });
+        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }), signal: ctrl.signal });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `Run ${i + 1} failed`);
         logUsageFromResponse("repeated", body);
@@ -42,9 +47,15 @@ export default function RepeatedPage() {
         if (i === runs - 1) setLast({ resp: body, req: req as JevApiRequest });
       }
     } catch (e) {
-      setError({ title: "Repeated run failed", detail: e instanceof Error ? e.message : "Unknown error" });
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setCancelled(true);
+      } else {
+        setError({ title: "Repeated run failed", detail: e instanceof Error ? e.message : "Unknown error" });
+      }
     } finally { setLoading(false); }
   };
+
+  const doStop = () => abortRef.current?.abort();
 
   React.useEffect(() => {
     const h = () => doRun();
@@ -75,8 +86,12 @@ export default function RepeatedPage() {
               <button key={n} onClick={() => setRuns(n)} className={`rounded-lg border px-3 py-1.5 font-mono text-[12px] ${runs === n ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-line/10 text-mist-400 hover:border-line/25"}`}>{n}</button>
             ))}
           </div>
-          <Button onClick={doRun} disabled={loading} className="mt-5 w-full" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? `Run ${progress}/${runs}…` : `Run ${runs}×`}</Button>
+          <div className="mt-5 flex gap-2">
+            <Button onClick={doRun} disabled={loading} className="flex-1" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? `Run ${progress}/${runs}…` : `Run ${runs}×`}</Button>
+            {loading && <Button onClick={doStop} variant="outline" size="lg" aria-label="Stop runs"><Square size={15} /></Button>}
+          </div>
           {loading && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-wash/[0.07]"><div className="h-full bg-emerald-400 transition-all" style={{ width: `${(progress / runs) * 100}%` }} /></div>}
+          {cancelled && !loading && <p className="mt-2 text-[12px] text-amber-300">Cancelled — partial results kept, no further spend.</p>}
         </Card>
       </div>
       <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_360px]">

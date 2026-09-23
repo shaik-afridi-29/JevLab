@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { MotionConfig } from "framer-motion";
 import {
   FlaskConical, LayoutDashboard, SplitSquareHorizontal, ListChecks, Gauge,
   Layers, Repeat, Swords, GitCompareArrows, Library, BookOpen, Settings,
@@ -114,7 +115,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setPalette((v) => !v);
+        setPalette((v) => {
+          if (!v) {
+            setQuery("");
+            setActiveIdx(0);
+          }
+          return !v;
+        });
       }
       if (e.key === "Escape") setPalette(false);
     };
@@ -123,8 +130,32 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const filtered = PALETTE_ACTIONS.filter((a) => a.label.toLowerCase().includes(query.toLowerCase()));
+  const [activeIdx, setActiveIdx] = React.useState(0);
+  const activeRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
+
+  const openPalette = () => {
+    setQuery("");
+    setActiveIdx(0);
+    setPalette(true);
+  };
+
+  const runAction = (a: (typeof PALETTE_ACTIONS)[number]) => {
+    setPalette(false);
+    setQuery("");
+    if (a.href) router.push(a.href);
+    else a.run?.();
+  };
+
+  React.useEffect(() => {
+    setActiveIdx(0);
+  }, [query]);
+
+  React.useEffect(() => {
+    activeRefs.current[activeIdx]?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line/[0.07] bg-ink-900 transition-transform lg:translate-x-0", mobileNav ? "translate-x-0" : "-translate-x-full")}>
@@ -168,7 +199,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                       onClick={() => setMobileNav(false)}
                       className={cn(
                         "flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] transition-colors",
-                        active ? "bg-wash/[0.08] font-medium text-mist-50" : "text-mist-400 hover:bg-wash/[0.04] hover:text-mist-100"
+                        active ? "bg-wash/[0.08] font-medium text-mist-100" : "text-mist-400 hover:bg-wash/[0.04] hover:text-mist-100"
                       )}
                       aria-current={active ? "page" : undefined}
                     >
@@ -202,7 +233,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <LabIcon size={16} />
           </button>
           <button
-            onClick={() => setPalette(true)}
+            onClick={openPalette}
             className="focus-ring flex h-9 max-w-md flex-1 items-center gap-2.5 rounded-lg border border-line/10 bg-wash/[0.03] px-3 text-[13px] text-mist-500 hover:border-line/20 hover:text-mist-300"
           >
             <Search size={14} /> <span className="hidden sm:inline">Search, run, navigate…</span><span className="sm:hidden">Search…</span>
@@ -230,23 +261,42 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setActiveIdx((i) => Math.min(filtered.length - 1, i + 1));
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActiveIdx((i) => Math.max(0, i - 1));
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    const a = filtered[activeIdx];
+                    if (a) runAction(a);
+                  }
+                }}
                 placeholder="Search Jev Lab…"
                 className="w-full bg-transparent text-[14px] outline-none placeholder:text-mist-500"
                 aria-label="Command palette"
+                role="combobox"
+                aria-expanded="true"
+                aria-controls="palette-listbox"
+                aria-activedescendant={filtered[activeIdx] ? `palette-${activeIdx}` : undefined}
               />
               <kbd className="rounded border border-line/10 px-1.5 font-mono text-[10px] text-mist-500">esc</kbd>
             </div>
-            <div className="max-h-72 overflow-y-auto p-1.5">
-              {filtered.map((a) => (
+            <div className="max-h-72 overflow-y-auto p-1.5" role="listbox" id="palette-listbox">
+              {filtered.map((a, i) => (
                 <button
                   key={a.label}
-                  onClick={() => {
-                    setPalette(false);
-                    setQuery("");
-                    if (a.href) router.push(a.href);
-                    else a.run?.();
+                  id={`palette-${i}`}
+                  ref={(el) => {
+                    activeRefs.current[i] = el;
                   }}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[13.5px] hover:bg-wash/[0.06]"
+                  role="option"
+                  aria-selected={i === activeIdx}
+                  onMouseMove={() => setActiveIdx(i)}
+                  onClick={() => runAction(a)}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[13.5px] ${i === activeIdx ? "bg-wash/[0.08] text-mist-100" : "hover:bg-wash/[0.06]"}`}
                 >
                   <span>{a.label}</span>
                   {a.hint && <kbd className="font-mono text-[11px] text-mist-500">{a.hint}</kbd>}
@@ -258,5 +308,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       )}
     </div>
+    </MotionConfig>
   );
 }

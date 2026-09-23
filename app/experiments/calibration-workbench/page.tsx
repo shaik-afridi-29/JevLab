@@ -2,7 +2,7 @@
 
 import React from "react";
 import dynamic from "next/dynamic";
-import { Play } from "lucide-react";
+import { Play, Square } from "lucide-react";
 import { Button, Card, Edu, ErrorBox, EmptyState, SectionHead, DemoBadge, Field, inputCls } from "@/components/ui";
 import { StateEditor, parseStateValue } from "@/components/editors";
 import { binTrials, expectedCalibrationError, type Trial } from "@/lib/calibration";
@@ -31,20 +31,25 @@ export default function CalibrationWorkbenchPage() {
   const [progress, setProgress] = React.useState(0);
   const [trials, setTrials] = React.useState<LabeledTrial[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [cancelled, setCancelled] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const bins = trials ? binTrials(trials, 10) : [];
   const ece = trials ? expectedCalibrationError(trials, 10) : 0;
 
   const doRun = async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
-    setError(null);
+    setError(null); setCancelled(false);
     setTrials([]);
     setProgress(0);
     const out: LabeledTrial[] = [];
     try {
       for (let i = 0; i < n; i++) {
         const req = { model, state: parseStateValue(stateText), questions: { probe: { type: "noul" as const, instructions: question } } };
-        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }) });
+        const res = await fetch("/api/jev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...req, demo: demoMode }), signal: ctrl.signal });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `Trial ${i + 1} failed`);
         logUsageFromResponse("calibration-workbench", body);
@@ -55,7 +60,11 @@ export default function CalibrationWorkbenchPage() {
         setProgress(i + 1);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setCancelled(true);
+      } else {
+        setError(e instanceof Error ? e.message : "Failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -91,6 +100,8 @@ export default function CalibrationWorkbenchPage() {
             <Field label="Trials" hint="1–50"><input type="number" min={1} max={50} value={n} onChange={(e) => setN(Math.max(1, Math.min(50, Number(e.target.value) || 1)))} className={inputCls} /></Field>
           </div>
           <Button onClick={doRun} disabled={loading} className="mt-4 w-full" size="lg" kbd="⌘⏎"><Play size={15} /> {loading ? `Trial ${progress}/${n}…` : `Run ${n} trials`}</Button>
+          {loading && <Button onClick={() => abortRef.current?.abort()} variant="outline" className="w-full" aria-label="Stop run"><Square size={15} /> Stop — keep partial results</Button>}
+          {cancelled && !loading && <p className="mt-2 text-[12px] text-amber-300">Cancelled — partial results kept, no further spend.</p>}
           {loading && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-wash/[0.07]"><div className="h-full bg-emerald-400 transition-all" style={{ width: `${(progress / n) * 100}%` }} /></div>}
         </Card>
 

@@ -6,6 +6,7 @@ import { uid } from "@/lib/utils";
 export default function NoulPage() {
   return (
     <Playground
+      draftKey="noul"
       title="Noul Playground"
       subtitle="Ask Jev whether something is true."
       edu="A Noul represents a proposition and returns Jev's estimated probability that the proposition is true. It is not the same thing as certainty. A value near 0.5 means Jev cannot tell — not a middle rating."

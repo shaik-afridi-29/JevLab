@@ -6,6 +6,7 @@ import { uid } from "@/lib/utils";
 export default function ChoicePage() {
   return (
     <Playground
+      draftKey="choice"
       title="Choice Playground"
       subtitle="Ask Jev to select among defined alternatives."
       edu="Choice evaluates several predefined alternatives and returns a probability distribution over them. The highlighted option is the argmax — read the full distribution, not just the winner. Add a none/other option when the list may not cover every input."

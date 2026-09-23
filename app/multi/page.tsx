@@ -6,6 +6,7 @@ import { uid } from "@/lib/utils";
 export default function MultiPage() {
   return (
     <Playground
+      draftKey="multi"
       title="Multi-Question Playground"
       subtitle="Run Noul, Choice and Score against the same state in one round trip."
       edu="Every question in a request sees the same state and is evaluated in parallel. Mixing types is encouraged: route with Choice, gate with Noul, rate with Score."

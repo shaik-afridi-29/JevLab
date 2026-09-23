@@ -27,6 +27,7 @@ export default function DetectivePage() {
         </div>
       </div>
       <Playground
+      draftKey="detective"
         title="Jev Detective"
         subtitle="Interrogate the evidence. Every answer is a Jev assessment, not the actual culprit."
         edu="Ask Noul (is Alice responsible?), Choice (who is most consistent with the evidence?) and Score (how suspicious is Charlie?) against the same case file. The game has no predefined answer — probabilities describe Jev's reading of the evidence."
