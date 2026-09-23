@@ -253,5 +253,5 @@ Pass the key at runtime (`-e TYPESAFE_API_KEY=...` or your orchestrator's secret
 ## License and version
 
 - **App version:** 1.0.0 (Next.js 14, React 18, TypeSafe Jev `jev-latest` with `jev-1.13.0` resolution).
-- **License:** no license file ships with this repository yet. Add one (e.g. MIT `LICENSE`) before distributing outside your organization.
+- **License:** MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Shaik Afridi.
 - **Upstream references:** [TypeSafe docs](https://docs.typesafe.ai) · [launch post](https://typesafe.ai/blog/introducing-system-one-models-and-jev) · [jaggedness notes](https://docs.typesafe.ai/model-jaggedness/jev-1.13) · [in-app Learn hub](/learn).
