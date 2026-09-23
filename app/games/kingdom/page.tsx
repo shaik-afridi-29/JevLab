@@ -63,10 +63,10 @@ const ROLE_TONE: Record<string, string> = {
 };
 
 /** Seat i (0–5) around the circle, in % coordinates. P1 sits at the top.
- *  Radius 38 keeps the top seat fully inside the card. */
+ *  Radius 35 keeps every seat (plus its bubble) inside the card. */
 function seatPos(i: number): { x: number; y: number } {
   const a = ((i * 60 - 90) * Math.PI) / 180;
-  return { x: 50 + 38 * Math.cos(a), y: 50 + 38 * Math.sin(a) };
+  return { x: 50 + 35 * Math.cos(a), y: 50 + 35 * Math.sin(a) };
 }
 const seatIdx = (id: string) => parseInt(id.slice(1), 10) - 1;
 
@@ -353,7 +353,7 @@ export default function KingdomPage() {
         <div className="space-y-4">
           {/* ROUND TABLE */}
           <Card className="overflow-hidden p-4">
-            <div className="relative mx-auto aspect-square w-full max-w-[600px] select-none" role="grid" aria-label="Round table">
+            <div className="relative mx-auto mt-5 aspect-square w-full max-w-[600px] select-none" role="grid" aria-label="Round table">
               {/* felt */}
               <div className="kingdom-felt absolute rounded-full border border-amber-200/10 shadow-pop" style={{ inset: "17%" }} />
               <div className="absolute rounded-full border border-dashed border-amber-100/10" style={{ inset: "20%" }} />
@@ -404,7 +404,7 @@ export default function KingdomPage() {
                 const clickable = mode === "human" && !game.completed && !thinking && stage === "idle" && targets.includes(p.id);
                 const fails = game.history.filter((h) => h.guessedPlayer === p.id && h.result === "incorrect").length;
                 return (
-                  <div key={p.id} className="absolute" style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%, -50%)" }}>
+                  <div key={p.id} className="absolute origin-center -translate-x-1/2 -translate-y-1/2 scale-[0.85] min-[500px]:scale-100" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
                     <button
                       disabled={!clickable}
                       onClick={() => void applyTurn(p.id)}
