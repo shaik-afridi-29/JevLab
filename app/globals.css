@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme tokens. :root = dark-first design (original values, unchanged). */
+:root {
+  color-scheme: dark;
+  --ink-950: 10 11 14;
+  --ink-900: 16 18 22;
+  --ink-850: 21 24 30;
+  --ink-800: 27 31 39;
+  --ink-750: 33 38 47;
+  --ink-700: 42 48 59;
+  --mist-100: 242 244 247;
+  --mist-200: 226 230 236;
+  --mist-300: 195 202 212;
+  --mist-400: 153 163 178;
+  --mist-500: 111 122 140;
+  --signal-true: 52 211 153;
+  --signal-false: 248 113 113;
+  --signal-unsure: 251 191 36;
+  --signal-info: 96 165 250;
+  --signal-violet: 167 139 250;
+  --line: 255 255 255;
+  --wash: 255 255 255;
+  --chart-tick: #99a3b2;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-tip-bg: #1b1f27;
+  --chart-tip-border: rgba(255, 255, 255, 0.12);
+  --chart-bar-dim: #3b4354;
+  --track: rgba(255, 255, 255, 0.07);
+  --grid-line: rgba(255, 255, 255, 0.025);
+  --scroll-thumb: #2a303b;
+}
+
+html.light {
+  color-scheme: light;
+  --ink-950: 244 246 249;
+  --ink-900: 255 255 255;
+  --ink-850: 255 255 255;
+  --ink-800: 255 255 255;
+  --ink-750: 238 241 245;
+  --ink-700: 229 234 240;
+  --mist-100: 20 24 31;
+  --mist-200: 43 51 64;
+  --mist-300: 75 85 104;
+  --mist-400: 107 118 136;
+  --mist-500: 139 149 167;
+  --signal-true: 5 150 105;
+  --signal-false: 220 38 38;
+  --signal-unsure: 180 83 9;
+  --signal-info: 37 99 235;
+  --signal-violet: 124 58 237;
+  --line: 15 23 42;
+  --wash: 15 23 42;
+  --chart-tick: #64748b;
+  --chart-grid: rgba(15, 23, 42, 0.08);
+  --chart-tip-bg: #ffffff;
+  --chart-tip-border: #e2e8f0;
+  --chart-bar-dim: #cbd5e1;
+  --track: rgba(15, 23, 42, 0.08);
+  --grid-line: rgba(15, 23, 42, 0.05);
+  --scroll-thumb: #c3cad4;
+}
+
+/*
+ * Default-palette text accents tuned for dark surfaces need darkening on
+ * light surfaces. Scoped to .light so dark rendering is untouched.
+ * (Unlayered CSS wins over Tailwind's @layer utilities by cascade layer order.)
+ */
+html.light .text-emerald-300 { color: #047857; }
+html.light .text-emerald-200 { color: #065f46; }
+html.light .text-red-300 { color: #b91c1c; }
+html.light .text-red-200 { color: #991b1b; }
+html.light .text-amber-300 { color: #92400e; }
+html.light .text-amber-200 { color: #78350f; }
+html.light .text-blue-300 { color: #1d4ed8; }
+html.light .text-violet-400 { color: #6d28d9; }
+html.light .bg-emerald-400\/15 { background-color: rgba(5, 150, 105, 0.12); }
+html.light .border-emerald-400\/25 { border-color: rgba(5, 150, 105, 0.35); }
+html.light .border-emerald-400\/30 { border-color: rgba(5, 150, 105, 0.4); }
+html.light .border-emerald-400\/40 { border-color: rgba(5, 150, 105, 0.5); }
+html.light .bg-emerald-400\/10 { background-color: rgba(5, 150, 105, 0.1); }
+html.light .bg-emerald-400\/\[0\.07\] { background-color: rgba(5, 150, 105, 0.08); }
+html.light .bg-emerald-400\/\[0\.05\] { background-color: rgba(5, 150, 105, 0.07); }
+
+html, body {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-950 text-mist-100 antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.24);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+.mono-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid rgba(52, 211, 153, 0.6);
+  outline-offset: 2px;
+}
+
+.prob-track {
+  background: var(--track);
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.animate-pulse-soft { animation: pulse-soft 1.6s ease-in-out infinite; }
+
+.lab-grid-bg {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 30%, transparent 75%);
+}
