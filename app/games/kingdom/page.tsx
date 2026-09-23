@@ -308,7 +308,6 @@ export default function KingdomPage() {
         .kingdom-dots span:nth-child(2) { animation-delay: .2s; }
         .kingdom-dots span:nth-child(3) { animation-delay: .4s; }
         @keyframes kblink { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
-        .kingdom-flip { transform-style: preserve-3d; }
       `}</style>
 
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -427,9 +426,14 @@ export default function KingdomPage() {
                           : ruledOut ? <span className="text-mist-500">ruled out{fails > 1 ? ` ×${fails}` : ""}</span>
                           : isHolder ? <span className="text-amber-200">{role}</span> : <span>active</span>}
                       </span>
-                      {/* hidden role chip: face-down until exit reveals it */}
-                      <span className={cn("kingdom-flip mt-1.5 flex h-5 w-12 items-center justify-center rounded border font-mono text-[9px]", !p.active ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-200 [transform:rotateY(180deg)]" : "border-line/20 bg-ink-800 text-mist-500")}>
-                        {!p.active ? p.completedRole?.slice(0, 5).toUpperCase() : "···"}
+                      {/* hidden role chip: face-down card that flips on exit to reveal the kept role */}
+                      <span className="mt-1.5 block h-5 w-14 [perspective:240px]">
+                        <span className={cn("relative block h-full w-full transition-transform duration-500 [transform-style:preserve-3d]", !p.active && "[transform:rotateY(180deg)]")}>
+                          <span className="absolute inset-0 flex items-center justify-center rounded border border-line/20 bg-ink-800 font-mono text-[9px] text-mist-500 [backface-visibility:hidden]">···</span>
+                          <span className="absolute inset-0 flex items-center justify-center rounded border border-emerald-400/40 bg-emerald-400/15 font-mono text-[9px] font-bold text-emerald-200 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                            {!p.active ? p.completedRole?.slice(0, 5).toUpperCase() : ""}
+                          </span>
+                        </span>
                       </span>
                     </button>
                   </div>
@@ -600,12 +604,12 @@ export default function KingdomPage() {
 function Bubble({ pos, tone, children }: { pos: { x: number; y: number }; tone: "thinking" | "pick" | "dim"; children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6, scale: 0.92 }}
-      animate={{ opacity: tone === "dim" ? 0.75 : 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.92 }}
+      initial={{ opacity: 0, x: "-50%", y: "-100%", scale: 0.92 }}
+      animate={{ opacity: tone === "dim" ? 0.75 : 1, x: "-50%", y: "-118%", scale: 1 }}
+      exit={{ opacity: 0, x: "-50%", y: "-100%", scale: 0.92 }}
       transition={{ type: "spring", stiffness: 400, damping: 26 }}
       className="absolute z-20"
-      style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%, -118%)" }}
+      style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
     >
       <div className={cn(
         "whitespace-nowrap rounded-2xl rounded-bl-md border px-3 py-1.5 shadow-pop backdrop-blur",
