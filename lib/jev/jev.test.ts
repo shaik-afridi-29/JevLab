@@ -71,7 +71,11 @@ describe("callJevApi resilience", () => {
   });
 
   it("aborts a hung upstream call after timeoutMs", async () => {
-    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+    // Stub honors abort like real fetch: hangs until the signal fires.
+    globalThis.fetch = ((_url: unknown, init?: { signal?: AbortSignal }) =>
+      new Promise((_res, rej) => {
+        init?.signal?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")));
+      })) as unknown as typeof fetch;
     const t0 = Date.now();
     await expect(
       callJevApi({ model: "m", state: "s", questions: {} } as never, "k", { timeoutMs: 60, retries: 0 })
